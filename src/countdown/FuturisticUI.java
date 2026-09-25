@@ -20,6 +20,8 @@ public final class FuturisticUI {
     public static final Color PANEL = new Color(35, 10, 23);
     public static final Color PANEL_2 = new Color(54, 15, 34);
     public static final Color PINK = new Color(255, 93, 151);
+    public static final Color PURPLE = new Color(207, 91, 255);
+    public static final Color CYAN = new Color(255, 139, 190);
     public static final Color ROSE = new Color(255, 55, 105);
     public static final Color GOLD = new Color(255, 201, 115);
     public static final Color TEXT = new Color(255, 242, 247);

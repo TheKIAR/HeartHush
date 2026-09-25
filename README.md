@@ -11,7 +11,7 @@ The countdown is now the main focus of the app. Each event shows:
 - Featured events appear first.
 - Valentine's Day is automatically added if an older local data file does not already contain one.
 
-Valentine's Day is observed on **February 14**. citeturn0search2
+Valentine's Day is observed on **February 14**.
 
 ## 💌 Secret message
 

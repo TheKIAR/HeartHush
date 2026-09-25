@@ -1,0 +1,7 @@
+# Java build output
+classes/
+*.class
+
+# OS / editor
+Thumbs.db
+Desktop.ini

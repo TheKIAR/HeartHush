@@ -38,6 +38,7 @@ public class EventStore {
                 }
             }
         }catch(Exception e){items.clear();}
+        boolean changed = false;
         if(items.isEmpty()){
             items.add(seed("Valentine's Day",LocalDate.of(2027,2,14),
                     "A little countdown for a very special day.",true));
@@ -45,8 +46,21 @@ public class EventStore {
                     "It's 15 October, 12 o'clock! Open the app - your special day has arrived!",false));
             items.add(seed("27 March - Focus Day",LocalDate.of(2003,3,27),
                     "It's 27 March, 12 o'clock! Open the app - your special day has arrived!",false));
-            save();
+            changed = true;
         }
+        boolean hasValentine = false;
+        for(EventItem e : items) {
+            if(e.title != null && e.title.toLowerCase().contains("valentine")) {
+                hasValentine = true;
+                break;
+            }
+        }
+        if(!hasValentine) {
+            items.add(0, seed("Valentine's Day", LocalDate.of(2027,2,14),
+                    "A little countdown for a very special day.", true));
+            changed = true;
+        }
+        if(changed) save();
     }
 
     private static EventItem seed(String title,LocalDate date,String message,boolean featured){

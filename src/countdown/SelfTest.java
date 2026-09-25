@@ -42,7 +42,7 @@ public class SelfTest {
         week.repeatYearly = false;
         week.date = LocalDate.now().plusDays(7);
         String text = week.countdownText(LocalDateTime.now());
-        check(text.startsWith("6d ") || text.startsWith("7d "),
+        check(text.startsWith("06d ") || text.startsWith("07d "),
                 "7-day countdown text, got: " + text);
         check(!week.isDueToday(LocalDate.now()), "not due today");
 

@@ -27,7 +27,7 @@ public class LoginDialog extends JDialog {
 
         JPanel center = new JPanel(new BorderLayout(0, 10));
         center.setOpaque(false);
-        JLabel hint = FuturisticUI.label("Enter the administrator password to unlock controls.", 12f,
+        JLabel hint = FuturisticUI.label("Enter the administrator password to unlock controls. First run password: admin123", 12f,
                 FuturisticUI.MUTED, Font.PLAIN);
         hint.setHorizontalAlignment(SwingConstants.CENTER);
         center.add(hint, BorderLayout.NORTH);

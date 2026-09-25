@@ -23,6 +23,8 @@ public class SelfTest {
         tricky.title = "Quote \"test\" \\ backslash\nnewline";
         tricky.date = LocalDate.of(2030, 5, 9);
         tricky.message = "msg <with> & symbols";
+        tricky.secretEnabled = true;
+        tricky.secretMessage = "A private Valentine message ♥";
         tricky.featured = true;
         tricky.repeatYearly = false;
         tricky.soundEnabled = false;
@@ -34,6 +36,7 @@ public class SelfTest {
         check(back != null, "round-trip item found");
         check(back.title.equals(tricky.title), "title round-trip, got: " + back.title);
         check(back.message.equals(tricky.message), "message round-trip");
+        check(back.secretEnabled && back.secretMessage.equals(tricky.secretMessage), "secret message round-trip");
         check(back.date.equals(tricky.date), "date round-trip");
         check(back.featured && !back.repeatYearly && !back.soundEnabled, "flag round-trip");
 

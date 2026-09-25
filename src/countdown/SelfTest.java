@@ -51,7 +51,7 @@ public class SelfTest {
         yearly.repeatYearly = true;
         yearly.date = LocalDate.of(2000, LocalDate.now().getMonth(), LocalDate.now().getDayOfMonth());
         check(yearly.isDueToday(LocalDate.now()), "yearly due today");
-        check(yearly.countdownText(LocalDateTime.now()).contains("TODAY"), "TODAY text");
+        check(yearly.countdownText(LocalDateTime.now()).contains("COUNTDOWN COMPLETE"), "completed text");
 
         // seed sorting: featured first
         check(reloaded.sortedByNext(LocalDate.now()).get(0).featured, "featured sorts first");

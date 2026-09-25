@@ -6,6 +6,7 @@ on:
     paths:
       - "src/**"
       - "manifest.txt"
+      - "build.bat"
       - ".github/workflows/build-jar.yml"
   workflow_dispatch:
 
@@ -22,16 +23,24 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "17"
+      - name: Set up Kotlin
+        run: |
+          curl -sL -o kotlin-compiler.zip https://github.com/JetBrains/kotlin/releases/download/v1.9.24/kotlin-compiler-1.9.24.zip
+          unzip -q kotlin-compiler.zip -d "$HOME/kotlin"
+          echo "$HOME/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
       - name: Compile and test
         shell: bash
         run: |
           rm -rf classes
           mkdir -p classes
-          javac --release 8 -encoding UTF-8 -d classes src/countdown/*.java
-          java -cp classes countdown.SelfTest
+          kotlinc src/countdown/*.kt -jvm-target 1.8 -d classes
+          STDLIB="$HOME/kotlin/kotlinc/lib/kotlin-stdlib.jar"
+          java -cp "classes:$STDLIB" countdown.SelfTest
       - name: Package executable JAR
         run: |
+          STDLIB="$HOME/kotlin/kotlinc/lib/kotlin-stdlib.jar"
+          (cd classes && jar xf "$STDLIB" && rm -rf META-INF)
           echo "Main-Class: countdown.Main" > manifest.txt
           jar cfm HeartHush.jar manifest.txt -C classes .
       - name: Commit updated JAR

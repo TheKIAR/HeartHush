@@ -1,6 +1,12 @@
-# Java build output
+# Build output
 classes/
 *.class
+
+# Android build output (the debug APK at repo root IS committed on purpose)
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
 
 # OS / editor
 Thumbs.db

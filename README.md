@@ -74,3 +74,23 @@ self-test (`countdown.SelfTest`), and rebuilds `HeartHush.jar`. The Kotlin 1.9.2
 compiler is auto-downloaded on first run if `kotlinc` is not on `PATH`.
 
 GitHub Actions does the same on every push to `main` and commits the rebuilt JAR.
+
+## 📱 Android app (test APK)
+
+`HeartHush-debug.apk` is a native Android port for testing on your phone:
+
+- Same countdown logic and **same `events.json` schema** (files are interchangeable
+  with the desktop app), same `admin123` password scheme.
+- Live countdown list with search, filters, and sorting.
+- Admin-gated add / edit / duplicate / delete, secret-message reveal, alarm + snooze.
+- Requires Android 8.0 (API 26) or newer. Install by copying the APK to your phone
+  and opening it (allow "install unknown apps" when asked).
+
+Build it yourself with:
+
+```bat
+android\build-apk.bat
+```
+
+This reuses your local Android SDK, auto-downloads JDK 17 + Gradle on first run,
+and copies the result to `HeartHush-debug.apk`.

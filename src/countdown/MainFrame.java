@@ -36,7 +36,7 @@ public class MainFrame extends JFrame {
     private static class Row{EventItem item;JLabel countdown,badge;JPanel adminBar;JLabel title;}
 
     public MainFrame(EventStore store,AuthService auth){
-        super("Special Count ♥ Valentine's Countdown");
+        super("HeartHush ♥ Valentine's Countdown");
         this.store=store;this.auth=auth;
         setDefaultCloseOperation(EXIT_ON_CLOSE);setSize(900,820);setMinimumSize(new Dimension(700,680));setLocationRelativeTo(null);
         FuturisticUI.frame(this);
@@ -44,7 +44,7 @@ public class MainFrame extends JFrame {
 
         JPanel header=new JPanel(new BorderLayout(15,0));header.setOpaque(false);header.setBorder(BorderFactory.createEmptyBorder(24,28,12,28));
         JPanel brand=new JPanel();brand.setOpaque(false);brand.setLayout(new BoxLayout(brand,BoxLayout.Y_AXIS));
-        JLabel title=FuturisticUI.label("SPECIAL COUNT ♥",31f,FuturisticUI.TEXT,Font.BOLD);
+        JLabel title=FuturisticUI.label("HEARTHUSH ♥",31f,FuturisticUI.TEXT,Font.BOLD);
         JLabel sub=FuturisticUI.label("VALENTINE EDITION  •  COUNT EVERY HEARTBEAT",12f,FuturisticUI.PINK,Font.BOLD);
         brand.add(title);brand.add(Box.createVerticalStrut(5));brand.add(sub);header.add(brand,BorderLayout.WEST);
 

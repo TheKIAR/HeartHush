@@ -1,4 +1,4 @@
-# Special Count ♥ Valentine Edition
+# HeartHush ♥ Valentine Edition
 
 A Java Swing countdown app redesigned around a romantic Valentine's theme: animated hearts, glowing glass cards, live countdowns, admin controls, and a private secret-message reveal.
 
@@ -46,10 +46,10 @@ Click **ADMIN LOGIN** at the bottom of the main window.
 
 ## ▶ Run
 
-Double-click `CountdownApp.jar` or:
+Double-click `HeartHush.jar` or:
 
 ```bat
-java -jar CountdownApp.jar
+java -jar HeartHush.jar
 ```
 
-GitHub Actions compiles the project with Java 8 compatibility, runs the headless self-test, and rebuilds `CountdownApp.jar` automatically.
+GitHub Actions compiles the project with Java 8 compatibility, runs the headless self-test, and rebuilds `HeartHush.jar` automatically.

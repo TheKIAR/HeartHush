@@ -1,2 +1,2 @@
 @echo off
-java -jar "%~dp0CountdownApp.jar"
+java -jar "%~dp0HeartHush.jar"

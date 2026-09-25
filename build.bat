@@ -13,6 +13,6 @@ if errorlevel 1 (
   exit /b 1
 )
 echo Main-Class: countdown.Main> manifest.txt
-"C:\Program Files\Java\jdk-25.0.2\bin\jar.exe" cfm CountdownApp.jar manifest.txt -C classes .
+"C:\Program Files\Java\jdk-25.0.2\bin\jar.exe" cfm HeartHush.jar manifest.txt -C classes .
 echo.
-echo BUILD OK - run with run.bat or: java -jar CountdownApp.jar
+echo BUILD OK - run with run.bat or: java -jar HeartHush.jar

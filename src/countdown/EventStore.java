@@ -19,8 +19,18 @@ public class EventStore {
 
     public static Path defaultPath(){
         String appData=System.getenv("APPDATA");
-        Path dir=(appData!=null&&!appData.trim().isEmpty())?Paths.get(appData,"CountdownApp"):Paths.get(System.getProperty("user.home"),".countdownapp");
-        return dir.resolve("events.json");
+        Path dir=(appData!=null&&!appData.trim().isEmpty())?Paths.get(appData,"HeartHush"):Paths.get(System.getProperty("user.home"),".hearthush");
+        Path file=dir.resolve("events.json");
+        // Migrate from legacy CountdownApp location so existing users keep their events.
+        try{
+            Path legacyDir=(appData!=null&&!appData.trim().isEmpty())?Paths.get(appData,"CountdownApp"):Paths.get(System.getProperty("user.home"),".countdownapp");
+            Path legacyFile=legacyDir.resolve("events.json");
+            if(!Files.exists(file)&&Files.exists(legacyFile)){
+                Files.createDirectories(dir);
+                Files.copy(legacyFile,file);
+            }
+        }catch(Exception ignored){}
+        return file;
     }
 
     public synchronized List<EventItem> items(){return items;}

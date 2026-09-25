@@ -1,4 +1,4 @@
-name: Build and update CountdownApp.jar
+name: Build and update HeartHush.jar
 
 on:
   push:
@@ -33,16 +33,16 @@ jobs:
       - name: Package executable JAR
         run: |
           echo "Main-Class: countdown.Main" > manifest.txt
-          jar cfm CountdownApp.jar manifest.txt -C classes .
+          jar cfm HeartHush.jar manifest.txt -C classes .
       - name: Commit updated JAR
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot].users.noreply.github.com"
-          git add CountdownApp.jar manifest.txt
+          git add HeartHush.jar manifest.txt
           if git diff --cached --quiet; then
             echo "No JAR changes to commit."
           else
-            git commit -m "Build updated CountdownApp.jar"
+            git commit -m "Build updated HeartHush.jar"
             git push
           fi

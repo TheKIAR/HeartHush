@@ -1,0 +1,48 @@
+name: Build and update CountdownApp.jar
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "manifest.txt"
+      - ".github/workflows/build-jar.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Compile and test
+        shell: bash
+        run: |
+          rm -rf classes
+          mkdir -p classes
+          javac --release 8 -encoding UTF-8 -d classes src/countdown/*.java
+          java -cp classes countdown.SelfTest
+      - name: Package executable JAR
+        run: |
+          echo "Main-Class: countdown.Main" > manifest.txt
+          jar cfm CountdownApp.jar manifest.txt -C classes .
+      - name: Commit updated JAR
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot].users.noreply.github.com"
+          git add CountdownApp.jar manifest.txt
+          if git diff --cached --quiet; then
+            echo "No JAR changes to commit."
+          else
+            git commit -m "Build updated CountdownApp.jar"
+            git push
+          fi

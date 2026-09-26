@@ -33,13 +33,16 @@ Tap **Admin login**.
 
 ## ▶ Run on Windows (no install)
 
-Double-click `HeartHush.jar` or:
+Double-click `run.bat` (it picks a Java 17+ runtime for you):
 
 ```bat
-java -jar HeartHush.jar
+run.bat
 ```
 
-This is the same UI as the Android app, packaged with everything it needs.
+> Do **not** double-click `HeartHush.jar` directly if your `.jar` files are
+> associated with an old Java 8 — it will fail with
+> `UnsupportedClassVersionError`. `run.bat` avoids that. `HeartHush.jar`
+> shows the exact same UI as the Android app, packaged with everything it needs.
 
 ## 📱 Run on Android (test APK)
 

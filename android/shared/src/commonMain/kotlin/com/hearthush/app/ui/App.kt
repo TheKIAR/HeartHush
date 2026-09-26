@@ -87,6 +87,7 @@ fun App() {
     val scope = rememberCoroutineScope()
 
     var tick by remember { mutableStateOf(0) }
+    var unlocked by remember { mutableStateOf(pin.isUnlocked()) }
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(FILTERS[0]) }
     var sort by remember { mutableStateOf(SORTS[0]) }
@@ -140,8 +141,8 @@ fun App() {
         }
     }
 
-    if (!pin.isUnlocked()) {
-        PinGate(pin, onUnlock = { refresh() })
+    if (!unlocked) {
+        PinGate(pin, onUnlock = { unlocked = pin.isUnlocked(); refresh() })
         return
     }
 
@@ -296,7 +297,7 @@ fun App() {
             )
         }
         if (showPin) {
-            PinDialog(pin, onClose = { showPin = false; refresh() })
+            PinDialog(pin, onClose = { showPin = false; unlocked = pin.isUnlocked(); refresh() })
         }
         if (severPrompt && pair.isPaired()) {
             AlertDialog(

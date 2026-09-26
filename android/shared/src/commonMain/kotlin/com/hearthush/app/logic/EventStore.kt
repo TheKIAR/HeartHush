@@ -126,6 +126,9 @@ class EventStore(dir: String, name: String = "events.json") {
                 e.icon = item.icon
                 e.accentHex = item.accentHex
                 e.category = item.category
+                e.senderId = item.senderId
+                e.forPartner = item.forPartner
+                e.delivered = item.delivered
                 save()
                 return
             }

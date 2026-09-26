@@ -20,6 +20,59 @@ actual fun prefsPut(key: String, value: String) {
 actual fun sha256(data: ByteArray): ByteArray =
     MessageDigest.getInstance("SHA-256").digest(data)
 
+actual fun nowSec(): Long = System.currentTimeMillis() / 1000
+
+actual fun httpGet(url: String, timeoutMs: Int): String {
+    val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+    try {
+        c.connectTimeout = timeoutMs
+        c.readTimeout = timeoutMs
+        c.setRequestProperty("Accept", "application/json")
+        val code = c.responseCode
+        val stream = if (code in 200..299) c.inputStream else c.errorStream
+        // ntfy keeps the stream open; a read timeout just ends our poll.
+        val out = StringBuilder()
+        try {
+            stream.bufferedReader(Charsets.UTF_8).use { r ->
+                while (true) {
+                    val line = try {
+                        r.readLine()
+                    } catch (e: java.net.SocketTimeoutException) {
+                        break
+                    }
+                    if (line == null) break
+                    out.append(line).append('\n')
+                    if (out.length > 200_000) break
+                }
+            }
+        } catch (e: java.net.SocketTimeoutException) {
+            // partial content is fine
+        }
+        if (code !in 200..299) throw java.io.IOException("HTTP $code")
+        return out.toString()
+    } finally {
+        c.disconnect()
+    }
+}
+
+actual fun httpPost(url: String, body: String, timeoutMs: Int): String {
+    val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+    try {
+        c.connectTimeout = timeoutMs
+        c.readTimeout = timeoutMs
+        c.requestMethod = "POST"
+        c.doOutput = true
+        c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        val code = c.responseCode
+        val stream = if (code in 200..299) c.inputStream else c.errorStream
+        val resp = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        if (code !in 200..299) throw java.io.IOException("HTTP $code: $resp")
+        return resp
+    } finally {
+        c.disconnect()
+    }
+}
+
 @Volatile
 private var stop = false
 

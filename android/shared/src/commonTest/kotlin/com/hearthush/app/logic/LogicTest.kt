@@ -96,10 +96,10 @@ class LogicTest {
     @Test
     fun passwordHashing() {
         // pure function: 64-char hex, deterministic, distinct per input
-        val h1 = AuthService.hash("admin123")
+        val h1 = PinLock.hash("1234")
         assertEquals(64, h1.length)
-        assertEquals(h1, AuthService.hash("admin123"))
-        assertFalse(h1 == AuthService.hash("admin124"))
+        assertEquals(h1, PinLock.hash("1234"))
+        assertFalse(h1 == PinLock.hash("1235"))
         assertTrue(h1.all { it in '0'..'9' || it in 'a'..'f' })
     }
 }

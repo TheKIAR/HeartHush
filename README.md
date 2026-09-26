@@ -18,18 +18,24 @@ both, so files are interchangeable.
   progress bar, live monospaced countdown, per-card accent color.
 - **Search, filter** (All / Today / Next 7 days / Featured / With secret)
   **and sort** (next / A–Z / biggest), live stats header.
-- **Admin extras**: duplicate any countdown, one-tap sample data, per-countdown
+- **Create anything**: duplicate any countdown, one-tap sample data, per-countdown
   accent picker + icon picker in the editor.
 - **Secret messages**: revealed only at zero through an explicit OPEN step.
 - Featured ★ events appear first; Valentine's Day is seeded if missing (Feb 14).
+- **Online pairing**: connect two devices with 6-letter codes. Countdowns sent
+  `To partner` appear on both devices, but the message is revealed only on the
+  partner's device at zero. Disconnect needs both sides to agree.
+- **App PIN**: whole app sits behind a PIN. First run is `1234`, changeable in PIN settings.
 
-## 🔐 Admin access
+## 🔐 PIN + Connect
 
-Tap **Admin login**.
-
-- First-run password: `admin123`
-- Admin mode unlocks create, edit, duplicate, delete, ring/test and secret-message controls.
-- Use **Password** to change the administrator password.
+- First-run PIN is `1234`. Enter it to unlock. Use **PIN** to change it or lock now.
+- Tap **Connect** to see your 6-letter code. Tell it to your partner, enter THEIR
+  code, and when both sides have entered each other's codes you are linked.
+- Create with `Send to: To partner (...)` to send a countdown. You see the timer,
+  they get the message at zero. `✉ TO PARTNER` / `✉ DELIVERED` shows the receipt.
+- **Disconnect** only severs when both agree: one side requests, the other must
+  tap AGREE. Declining keeps you connected.
 
 ## ▶ Run on Windows (no install)
 

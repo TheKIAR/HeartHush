@@ -34,6 +34,15 @@ class EventItem {
     /** Free-form category: Birthday, Exam, Wedding, App Release, Holiday, Work, ... */
     var category: String = "Countdown"
 
+    /** Account id of the creator. Empty = created before pairing existed. */
+    var senderId: String = ""
+
+    /** True = addressed to the partner (they reveal it at zero). */
+    var forPartner: Boolean = false
+
+    /** True once the partner has opened it at zero (receipt). */
+    var delivered: Boolean = false
+
     fun nextOccurrence(today: LocalDate): LocalDate {
         if (!repeatYearly) return date
         val day = minOf(
@@ -96,6 +105,12 @@ class EventItem {
         return if (category.trim().isEmpty()) "Countdown" else category
     }
 
+    /** True if this device created the countdown. */
+    fun isMine(myId: String): Boolean = senderId.isEmpty() || senderId == myId
+
+    /** True if the partner sent it to me (I reveal it at zero). */
+    fun isForMe(myId: String): Boolean = forPartner && senderId.isNotEmpty() && senderId != myId
+
     fun accentColor(fallback: Color): Color {
         return parseAccent(accentHex) ?: fallback
     }
@@ -135,6 +150,9 @@ class EventItem {
             ",\"icon\":" + q(icon) +
             ",\"accentHex\":" + q(accentHex) +
             ",\"category\":" + q(category) +
+            ",\"senderId\":" + q(senderId) +
+            ",\"forPartner\":" + forPartner +
+            ",\"delivered\":" + delivered +
             ",\"createdAt\":" + q(createdAt.toString()) + "}"
     }
 
@@ -193,6 +211,9 @@ class EventItem {
                         "color" -> e.accentHex = JsonUtil.unquote(`val`)
                         "category" -> e.category = JsonUtil.unquote(`val`)
                         "kind" -> e.category = JsonUtil.unquote(`val`)
+                        "senderId" -> e.senderId = JsonUtil.unquote(`val`)
+                        "forPartner" -> e.forPartner = `val`.toBoolean()
+                        "delivered" -> e.delivered = `val`.toBoolean()
                         "createdAt" -> e.createdAt = LocalDateTime.parse(JsonUtil.unquote(`val`))
                         else -> {}
                     }

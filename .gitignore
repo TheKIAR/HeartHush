@@ -2,11 +2,12 @@
 classes/
 *.class
 
-# Android build output (the debug APK at repo root IS committed on purpose)
+# Android / Gradle build output (the debug APK and desktop JAR at repo root ARE committed on purpose)
 android/.gradle/
 android/build/
-android/app/build/
+android/*/build/
 android/local.properties
+hs_err_pid*.log
 
 # OS / editor
 Thumbs.db

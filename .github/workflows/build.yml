@@ -1,14 +1,10 @@
-name: Build HeartHush.jar and APK
+name: Build HeartHush APK
 
 on:
   push:
     branches: [main]
     paths:
-      - "src/**"
       - "android/**"
-      - "manifest.txt"
-      - "build.bat"
-      - "android/build-apk.bat"
       - ".github/workflows/build.yml"
   workflow_dispatch:
 
@@ -26,11 +22,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Set up Kotlin
-        run: |
-          curl -sL -o kotlin-compiler.zip https://github.com/JetBrains/kotlin/releases/download/v1.9.24/kotlin-compiler-1.9.24.zip
-          unzip -q kotlin-compiler.zip -d "$HOME/kotlin"
-          echo "$HOME/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
       - name: Set up Gradle
@@ -38,33 +29,21 @@ jobs:
           curl -sL -o gradle.zip https://services.gradle.org/distributions/gradle-8.13-bin.zip
           unzip -q gradle.zip -d "$HOME/gradle"
           echo "$HOME/gradle/gradle-8.13/bin" >> "$GITHUB_PATH"
-      - name: Compile desktop and test
-        shell: bash
-        run: |
-          rm -rf classes
-          mkdir -p classes
-          kotlinc src/countdown/*.kt -jvm-target 1.8 -d classes
-          STDLIB="$HOME/kotlin/kotlinc/lib/kotlin-stdlib.jar"
-          java -cp "classes:$STDLIB" countdown.SelfTest
-      - name: Package executable JAR
-        run: |
-          STDLIB="$HOME/kotlin/kotlinc/lib/kotlin-stdlib.jar"
-          (cd classes && jar xf "$STDLIB" && rm -rf META-INF)
-          echo "Main-Class: countdown.Main" > manifest.txt
-          jar cfm HeartHush.jar manifest.txt -C classes .
+      - name: Test shared logic
+        run: gradle -p android :shared:desktopTest
       - name: Build debug APK
         run: |
-          gradle -p android assembleDebug
-          cp android/app/build/outputs/apk/debug/app-debug.apk HeartHush-debug.apk
-      - name: Commit updated artifacts
+          gradle -p android :androidApp:assembleDebug
+          cp android/androidApp/build/outputs/apk/debug/androidApp-debug.apk HeartHush-debug.apk
+      - name: Commit updated APK
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot].users.noreply.github.com"
-          git add HeartHush.jar HeartHush-debug.apk manifest.txt
+          git add HeartHush-debug.apk
           if git diff --cached --quiet; then
-            echo "No artifact changes to commit."
+            echo "No APK changes to commit."
           else
-            git commit -m "Build updated HeartHush.jar and HeartHush-debug.apk"
+            git commit -m "Build updated HeartHush-debug.apk"
             git push
           fi

@@ -13,4 +13,6 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "HeartHush"
-include(":app")
+include(":shared")
+include(":androidApp")
+include(":desktopApp")

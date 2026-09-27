@@ -42,6 +42,7 @@ class LogicTest {
         tricky.icon = "🚀"
         tricky.accentHex = "#7C6CFF"
         tricky.category = "App Release"
+        tricky.replyMessage = "Thanks!"
         store.addOrUpdate(tricky)
 
         val back = store.byId(tricky.id)
@@ -54,6 +55,7 @@ class LogicTest {
         assertEquals("🚀", back.icon)
         assertEquals("#7C6CFF", back.accentHex)
         assertEquals("App Release", back.category)
+        assertEquals("Thanks!", back.replyMessage)
     }
 
     @Test

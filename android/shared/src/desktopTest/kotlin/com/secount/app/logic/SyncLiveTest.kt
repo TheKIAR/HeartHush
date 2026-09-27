@@ -288,6 +288,98 @@ class SyncLiveTest {
     }
 
     @Test
+    fun severReannounceHealsMissedDone() = runBlocking {
+        val (pairA, _, engineA) = party("ra", dirA)
+        val (pairB, _, engineB) = party("rb", dirB)
+        engineA.sendPairRequest(pairB.myCode)
+        engineB.sendPairRequest(pairA.myCode)
+        engineB.syncNow()
+        engineA.syncNow()
+        assertTrue(pairA.isPaired() && pairB.isPaired())
+
+        assertTrue(engineA.requestSever())
+        engineB.syncNow() // B sees the ask
+        val before = fake.published.size
+        assertTrue(engineB.agreeSever())
+        assertFalse(pairB.isPaired())
+        // Severed side keeps re-announcing done so a partner that missed the
+        // first post still drops: an extra sync must publish again.
+        engineB.syncNow()
+        assertTrue(fake.published.size > before, "expected sever re-announce")
+        val rA = engineA.syncNow()
+        assertTrue(rA.severed)
+        assertFalse(pairA.isPaired())
+    }
+
+    @Test
+    fun receiverCannotOverwriteSenderItem() = runBlocking {
+        val (pairA, storeA, engineA) = party("oa", dirA)
+        val (pairB, storeB, engineB) = party("ob", dirB)
+        engineA.sendPairRequest(pairB.myCode)
+        engineB.sendPairRequest(pairA.myCode)
+        engineB.syncNow()
+        engineA.syncNow()
+        assertTrue(pairA.isPaired() && pairB.isPaired())
+
+        val item = EventItem()
+        item.title = "Original"
+        item.date = LocalDate.now().plusDays(3)
+        item.message = "Secret plan"
+        item.senderId = pairA.accountId
+        item.forPartner = true
+        storeA.addOrUpdate(item)
+        assertTrue(engineA.sendCountdown(item))
+        engineB.syncNow()
+        assertNotNull(storeB.byId(item.id))
+
+        // Receiver echoes back an edited copy (senderId still A's, from is B).
+        // Must be dropped: only the creator's posts apply.
+        val forged = EventItem.fromJson(storeB.byId(item.id)!!.toJson())
+        forged.title = "Hacked"
+        val env = "{\"v\":1,\"type\":\"countdown\",\"from\":\"" + pairB.accountId + "\"," +
+            "\"id\":\"x2\",\"at\":1,\"data\":" + q(forged.toJson()) + "}"
+        val topic = PairNet.pairTopic(pairA.myCode, pairB.myCode)
+        val conn = java.net.URL("${PairNet.BASE}/$topic").openConnection() as java.net.HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.outputStream.use { it.write(env.toByteArray(Charsets.UTF_8)) }
+            assertTrue(conn.responseCode in 200..299)
+        } finally {
+            conn.disconnect()
+        }
+        engineA.syncNow()
+        assertEquals("Original", storeA.byId(item.id)!!.title)
+    }
+
+    @Test
+    fun replyDeliversToSender() = runBlocking {
+        val (pairA, storeA, engineA) = party("ya", dirA)
+        val (pairB, storeB, engineB) = party("yb", dirB)
+        engineA.sendPairRequest(pairB.myCode)
+        engineB.sendPairRequest(pairA.myCode)
+        engineB.syncNow()
+        engineA.syncNow()
+        assertTrue(pairA.isPaired() && pairB.isPaired())
+
+        val item = EventItem()
+        item.title = "Surprise"
+        item.date = LocalDate.now().plusDays(1)
+        item.message = "Hi"
+        item.senderId = pairA.accountId
+        item.forPartner = true
+        storeA.addOrUpdate(item)
+        assertTrue(engineA.sendCountdown(item))
+        engineB.syncNow()
+        assertNotNull(storeB.byId(item.id))
+
+        assertTrue(engineB.sendReply(item.id, "Thank you!"))
+        val rA = engineA.syncNow()
+        assertTrue(rA.replyReceived)
+        assertEquals("Thank you!", storeA.byId(item.id)!!.replyMessage)
+    }
+
+    @Test
     fun strangersCannotInject() = runBlocking {
         val (pairA, storeA, engineA) = party("xa", dirA)
         val (pairB, storeB, engineB) = party("xb", dirB)

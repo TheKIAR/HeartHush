@@ -111,6 +111,7 @@ private var stop = false
 @Volatile
 private var playing = false
 
+/** Pretty bundled chime; falls back to a soft beep if audio is unavailable. */
 actual fun alarmBeep() {
     synchronized(SoundLock) {
         if (playing) return
@@ -118,21 +119,59 @@ actual fun alarmBeep() {
     }
     stop = false
     Thread({
+        var clip: javax.sound.sampled.Clip? = null
         try {
-            for (i in 0 until 6) {
-                if (stop) break
-                try {
-                    Toolkit.getDefaultToolkit().beep()
-                } catch (ignored: Exception) {
+            var played = false
+            try {
+                val stream = object {}.javaClass.getResourceAsStream("/secount_chime.wav")
+                    ?: Thread.currentThread().contextClassLoader.getResourceAsStream("secount_chime.wav")
+                if (stream != null) {
+                    stream.use { s ->
+                        val audio = javax.sound.sampled.AudioSystem.getAudioInputStream(s)
+                        clip = javax.sound.sampled.AudioSystem.getClip()
+                        clip?.open(audio)
+                        for (i in 0 until 2) {
+                            if (stop) break
+                            try {
+                                clip?.framePosition = 0
+                                clip?.start()
+                                var waited = 0
+                                while (clip?.isRunning == true && waited < 2600) {
+                                    if (stop) break
+                                    Thread.sleep(100)
+                                    waited += 100
+                                }
+                                clip?.stop()
+                            } catch (e: InterruptedException) {
+                                Thread.currentThread().interrupt()
+                                break
+                            }
+                        }
+                        played = true
+                    }
                 }
-                try {
-                    Thread.sleep(900)
-                } catch (e: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    break
+            } catch (ignored: Exception) {
+            }
+            if (!played) {
+                for (i in 0 until 2) {
+                    if (stop) break
+                    try {
+                        Toolkit.getDefaultToolkit().beep()
+                    } catch (ignored: Exception) {
+                    }
+                    try {
+                        Thread.sleep(1100)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        break
+                    }
                 }
             }
         } finally {
+            try {
+                clip?.close()
+            } catch (ignored: Exception) {
+            }
             playing = false
         }
     }, "alarm-beep").apply { isDaemon = true }.start()
@@ -140,6 +179,31 @@ actual fun alarmBeep() {
 
 actual fun alarmStop() {
     stop = true
+}
+
+actual fun notifySecret(title: String, text: String) {
+    try {
+        if (!java.awt.SystemTray.isSupported()) return
+        val tray = java.awt.SystemTray.getSystemTray()
+        val img = java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+        val icon = java.awt.TrayIcon(img, "Secount")
+        icon.isImageAutoSize = true
+        try {
+            tray.add(icon)
+            icon.displayMessage(title, text, java.awt.TrayIcon.MessageType.INFO)
+            Thread({ try {
+                Thread.sleep(8000)
+            } catch (ignored: Exception) {
+            } finally {
+                try {
+                    tray.remove(icon)
+                } catch (ignored: Exception) {
+                }
+            } }, "tray-cleanup").apply { isDaemon = true }.start()
+        } catch (ignored: Exception) {
+        }
+    } catch (ignored: Exception) {
+    }
 }
 
 private object SoundLock

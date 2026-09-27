@@ -55,6 +55,7 @@ import com.secount.app.logic.PinLock
 import com.secount.app.logic.SyncEngine
 import com.secount.app.logic.alarmBeep
 import com.secount.app.logic.alarmStop
+import com.secount.app.logic.notifySecret
 import com.secount.app.logic.platformDataDir
 import java.time.Instant
 import java.time.LocalDate
@@ -117,6 +118,16 @@ fun App() {
                 if (res.severAsked) severPrompt = true
                 if (res.severDeclined) notice = "Your partner declined to disconnect. Still connected."
                 if (res.severed) notice = "Connection severed by mutual agreement."
+                if (res.replyReceived) {
+                    notice = "Your partner replied to a secret message."
+                    try {
+                        notifySecret(
+                            "Secount reply",
+                            "Your partner replied to a secret message. Open it."
+                        )
+                    } catch (ignored: Exception) {
+                    }
+                }
                 if (res.offline) notice = "Offline — will retry automatically."
             } finally {
                 syncing = false
@@ -153,6 +164,9 @@ fun App() {
     val myId = pair.accountId
     val shown = remember(tick, query, filter, sort, store) {
         var list = store.sortedByNext(today).filter { e ->
+            // Partner secrets stay hidden on the receiver until D-day: the
+            // receiver cannot see, open or edit them before zero.
+            if (e.isForMe(myId) && !e.isDueToday(today)) return@filter false
             (query.isBlank() || (e.title + " " + e.message + " " + e.displayCategory())
                 .contains(query.trim(), ignoreCase = true)) &&
                 when (filter) {
@@ -173,12 +187,14 @@ fun App() {
     var todayN = 0
     var weekN = 0
     for (e in store.items()) {
+        if (e.isForMe(myId) && !e.isDueToday(today)) continue
         if (e.isDueToday(today)) todayN++
         else if (!e.isPast(today) && e.daysUntil(today) <= 7) weekN++
     }
 
     // due-today reveals: personal items and partner-sent items open here;
     // items I sent are revealed on the partner's device instead.
+    // Partner items also fire the "You Have a Secret Message" notification.
     LaunchedEffect(tick) {
         for (e in store.items()) {
             if (!e.isDueToday(today) || shownSecrets.contains(e.id)) continue
@@ -188,7 +204,16 @@ fun App() {
             if (mine && e.forPartner) continue
             shownSecrets.add(e.id)
             if (e.soundEnabled) alarmBeep()
-            if (e.hasSecret()) secretOf = e else alarmOf = e
+            if (forMe) {
+                try {
+                    notifySecret(
+                        "You Have a Secret Message Open it",
+                        "Open Secount to read your new secret message."
+                    )
+                } catch (ignored: Exception) {
+                }
+            }
+            if (e.hasSecret() || forMe) secretOf = e else alarmOf = e
             if (forMe) {
                 scope.launch { engine.sendDelivered(e.id) }
             }
@@ -226,25 +251,34 @@ fun App() {
             }
             LazyColumn(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                 items(shown, key = { it.id }) { e ->
-                    EventCard(
-                        e, now, myId,
-                        onEdit = { editing = e.copyFromJson(); editIsNew = false },
-                        onDuplicate = {
-                            val copy = e.copyFromJson()
-                            copy.id = UUID.randomUUID().toString().replace("-", "")
-                            copy.title = e.title + " (copy)"
-                            copy.createdAt = LocalDateTime.now()
-                            copy.senderId = myId
-                            store.addOrUpdate(copy)
-                            if (copy.forPartner) scope.launch { engine.sendCountdown(copy) }
-                            refresh()
-                        },
-                        onRing = {
-                            if (e.soundEnabled) alarmBeep()
-                            if (e.hasSecret()) secretOf = e else alarmOf = e
-                        },
-                        onDelete = { confirmDelete = e }
-                    )
+                    if (e.isForMe(myId)) {
+                        // Receiver view: sealed card only, no details, no edit.
+                        // The message + reply open through OPEN MESSAGE.
+                        SecretInboxCard(
+                            e,
+                            onOpen = { secretOf = e }
+                        )
+                    } else {
+                        EventCard(
+                            e, now, myId,
+                            onEdit = { editing = e.copyFromJson(); editIsNew = false },
+                            onDuplicate = {
+                                val copy = e.copyFromJson()
+                                copy.id = UUID.randomUUID().toString().replace("-", "")
+                                copy.title = e.title + " (copy)"
+                                copy.createdAt = LocalDateTime.now()
+                                copy.senderId = myId
+                                store.addOrUpdate(copy)
+                                if (copy.forPartner) scope.launch { engine.sendCountdown(copy) }
+                                refresh()
+                            },
+                            onRing = {
+                                if (e.soundEnabled) alarmBeep()
+                                if (e.hasSecret()) secretOf = e else alarmOf = e
+                            },
+                            onDelete = { confirmDelete = e }
+                        )
+                    }
                 }
             }
             Row(
@@ -276,17 +310,26 @@ fun App() {
         }
 
         editing?.let { item ->
-            EditDialog(
-                item, editIsNew, pair,
-                onSave = { saved, send ->
-                    store.addOrUpdate(saved)
-                    if (send) scope.launch { engine.sendCountdown(saved) }
+            // Safety net: partner-sent items are never editable, even if an
+            // old code path tries to open the editor for them.
+            if (item.isForMe(myId)) {
+                LaunchedEffect(item.id) {
+                    secretOf = store.byId(item.id) ?: item
                     editing = null
-                    refresh()
-                },
-                onDelete = { store.delete(it.id); editing = null; refresh() },
-                onCancel = { editing = null }
-            )
+                }
+            } else {
+                EditDialog(
+                    item, editIsNew, pair,
+                    onSave = { saved, send ->
+                        store.addOrUpdate(saved)
+                        if (send) scope.launch { engine.sendCountdown(saved) }
+                        editing = null
+                        refresh()
+                    },
+                    onDelete = { store.delete(it.id); editing = null; refresh() },
+                    onCancel = { editing = null }
+                )
+            }
         }
         if (showConnect) {
             ConnectDialog(
@@ -336,16 +379,68 @@ fun App() {
             )
         }
         secretOf?.let { item ->
-            var opened by remember { mutableStateOf(false) }
+            val live = store.byId(item.id) ?: item
+            var opened by remember(item.id) { mutableStateOf(false) }
+            var reply by remember(item.id) { mutableStateOf(live.replyMessage) }
+            var sending by remember(item.id) { mutableStateOf(false) }
+            val forMe = live.isForMe(myId)
             AlertDialog(
                 onDismissRequest = { secretOf = null },
-                title = { Text("💌 You have a message") },
+                title = { Text(if (forMe) "🎁 You have a new secret message — open it" else "💌 You have a message") },
                 text = {
                     Column {
-                        Text("${item.title} • ${item.displayCategory()} — the day is here!")
-                        Spacer(Modifier.height(8.dp))
-                        if (opened) Text(if (item.message.isNotEmpty()) item.message + "\n\n" + item.secretMessage else item.secretMessage)
-                        else Text("The countdown reached zero. Open your message when you're ready.")
+                        if (!opened) {
+                            Text(
+                                if (forMe) "Your partner sent you a surprise. It arrived at zero — open it when you're ready."
+                                else "${live.title} • ${live.displayCategory()} — the day is here!"
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text("The countdown reached zero. Open your message when you're ready.")
+                        } else {
+                            if (forMe) {
+                                Text("🎁 Secret message:", fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(4.dp))
+                            }
+                            val mainSecret = if (live.message.isNotEmpty() && live.secretMessage.isNotEmpty())
+                                live.message + "\n\n" + live.secretMessage
+                            else live.message + live.secretMessage
+                            Text(if (mainSecret.isNotEmpty()) mainSecret else "The day has arrived!")
+                            Spacer(Modifier.height(10.dp))
+                            val shownReply = store.byId(live.id)?.replyMessage ?: ""
+                            if (shownReply.isNotEmpty()) {
+                                Text("💬 Reply:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(shownReply, fontSize = 13.sp)
+                                Spacer(Modifier.height(6.dp))
+                            }
+                            if (pair.isPaired() && (forMe || live.forPartner)) {
+                                OutlinedTextField(
+                                    reply, { reply = it },
+                                    label = { Text(if (shownReply.isEmpty()) "Write a reply…" else "Update reply…") }
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Button(
+                                    onClick = {
+                                        val text = reply.trim()
+                                        if (text.isEmpty() || sending) return@Button
+                                        sending = true
+                                        scope.launch {
+                                            try {
+                                                val cur = store.byId(live.id)
+                                                if (cur != null) {
+                                                    cur.replyMessage = text
+                                                    store.addOrUpdate(cur)
+                                                }
+                                                engine.sendReply(live.id, text)
+                                                refresh()
+                                            } finally {
+                                                sending = false
+                                            }
+                                        }
+                                    },
+                                    enabled = reply.trim().isNotEmpty() && !sending
+                                ) { Text(if (sending) "SENDING…" else "SEND REPLY") }
+                            }
+                        }
                     }
                 },
                 confirmButton = {
@@ -638,6 +733,42 @@ private fun DropDown(
 }
 
 @Composable
+private fun SecretInboxCard(
+    e: EventItem,
+    onOpen: () -> Unit
+) {
+    val accent = e.accentColor(Brand)
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🎁", fontSize = 30.sp)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "You have a new secret message — open it",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    Text(
+                        "🎁 FOR YOU • ${e.dateLabel()}".uppercase(),
+                        color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text("Your partner's surprise arrived at zero. Nothing was visible before today.", fontSize = 13.sp)
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Button(onClick = onOpen) { Text("OPEN MESSAGE") }
+            }
+        }
+    }
+}
+
+@Composable
 private fun EventCard(
     e: EventItem,
     now: LocalDateTime,
@@ -759,7 +890,7 @@ private fun EditDialog(
                     DropDown("Send to", audiences, audience, { audience = it })
                     Spacer(Modifier.height(6.dp))
                     if (audience != "Just me") {
-                        Text("They'll see the countdown; the message arrives at zero.", fontSize = 12.sp)
+                        Text("They won't see anything until zero — then they get “You Have a Secret Message Open it”.", fontSize = 12.sp)
                         Spacer(Modifier.height(6.dp))
                     }
                 }

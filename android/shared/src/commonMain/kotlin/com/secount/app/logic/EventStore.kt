@@ -129,6 +129,7 @@ class EventStore(dir: String, name: String = "events.json") {
                 e.senderId = item.senderId
                 e.forPartner = item.forPartner
                 e.delivered = item.delivered
+                e.replyMessage = item.replyMessage
                 save()
                 return
             }

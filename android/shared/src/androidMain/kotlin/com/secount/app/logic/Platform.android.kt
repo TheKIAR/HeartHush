@@ -85,6 +85,7 @@ private var stop = false
 @Volatile
 private var playing = false
 
+/** Soft music-box chime (E–G#–B–E). Replaces the old harsh alarm tone. */
 actual fun alarmBeep() {
     synchronized(SoundLock) {
         if (playing) return
@@ -92,29 +93,77 @@ actual fun alarmBeep() {
     }
     stop = false
     Thread({
-        var gen: ToneGenerator? = null
+        var player: android.media.MediaPlayer? = null
         try {
-            gen = try {
-                ToneGenerator(AudioManager.STREAM_ALARM, 100)
-            } catch (e: Exception) {
-                null
-            }
-            for (i in 0 until 6) {
-                if (stop) break
-                try {
-                    gen?.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 500)
-                } catch (ignored: Exception) {
+            // Pretty bundled chime first.
+            try {
+                val ctx = AppCtx.app
+                if (ctx != null) {
+                    val resId = ctx.resources.getIdentifier(
+                        "secount_chime", "raw", ctx.packageName
+                    )
+                    if (resId != 0) {
+                        val afd = ctx.resources.openRawResourceFd(resId)
+                        if (afd != null) {
+                            player = android.media.MediaPlayer().apply {
+                                setDataSource(
+                                    afd.fileDescriptor, afd.startOffset, afd.length
+                                )
+                                afd.close()
+                                setAudioAttributes(
+                                    android.media.AudioAttributes.Builder()
+                                        .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                        .build()
+                                )
+                                prepare()
+                            }
+                            for (i in 0 until 2) {
+                                if (stop) break
+                                try {
+                                    if (player?.isPlaying != true) player?.start()
+                                    Thread.sleep(2400)
+                                } catch (e: InterruptedException) {
+                                    Thread.currentThread().interrupt()
+                                    break
+                                }
+                            }
+                            return@Thread
+                        }
+                    }
                 }
+            } catch (ignored: Exception) {
+            }
+            // Fallback: soft two-tone (much gentler than the old guard tone).
+            var gen: ToneGenerator? = null
+            try {
+                gen = try {
+                    ToneGenerator(AudioManager.STREAM_NOTIFICATION, 60)
+                } catch (e: Exception) {
+                    null
+                }
+                for (i in 0 until 2) {
+                    if (stop) break
+                    try {
+                        gen?.startTone(ToneGenerator.TONE_PROP_BEEP, 600)
+                    } catch (ignored: Exception) {
+                    }
+                    try {
+                        Thread.sleep(1100)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        break
+                    }
+                }
+            } finally {
                 try {
-                    Thread.sleep(900)
-                } catch (e: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    break
+                    gen?.release()
+                } catch (ignored: Exception) {
                 }
             }
         } finally {
             try {
-                gen?.release()
+                player?.release()
             } catch (ignored: Exception) {
             }
             playing = false
@@ -124,6 +173,78 @@ actual fun alarmBeep() {
 
 actual fun alarmStop() {
     stop = true
+}
+
+actual fun notifySecret(title: String, text: String) {
+    try {
+        val ctx = AppCtx.app ?: return
+        val mgr = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val channelId = "secount_secret"
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            var channel = try {
+                mgr.getNotificationChannel(channelId)
+            } catch (e: Exception) {
+                null
+            }
+            if (channel == null) {
+                channel = android.app.NotificationChannel(
+                    channelId, "Secret messages",
+                    android.app.NotificationManager.IMPORTANCE_HIGH
+                )
+                try {
+                    val resId = ctx.resources.getIdentifier(
+                        "secount_chime", "raw", ctx.packageName
+                    )
+                    if (resId != 0) {
+                        val soundUri = android.net.Uri.parse(
+                            "${android.content.ContentResolver.SCHEME_ANDROID_RESOURCE}://${ctx.packageName}/$resId"
+                        )
+                        val attrs = android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                        channel.setSound(soundUri, attrs)
+                    }
+                } catch (ignored: Exception) {
+                }
+                try {
+                    mgr.createNotificationChannel(channel)
+                } catch (ignored: Exception) {
+                }
+            }
+        }
+        val intent = try {
+            ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+        } catch (e: Exception) {
+            null
+        }
+        val flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+            (if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M)
+                android.app.PendingIntent.FLAG_IMMUTABLE else 0)
+        val pending = try {
+            if (intent != null) android.app.PendingIntent.getActivity(ctx, 0, intent, flags)
+            else null
+        } catch (e: Exception) {
+            null
+        }
+        val builder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            android.app.Notification.Builder(ctx, channelId)
+        } else {
+            @Suppress("DEPRECATION")
+            android.app.Notification.Builder(ctx)
+        }
+        builder.setContentTitle(title)
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setAutoCancel(true)
+        if (pending != null) builder.setContentIntent(pending)
+        try {
+            mgr.notify(1001, builder.build())
+        } catch (e: SecurityException) {
+            // Notification permission not granted — in-app card still shows.
+        }
+    } catch (ignored: Exception) {
+    }
 }
 
 private object SoundLock

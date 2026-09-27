@@ -20,3 +20,6 @@ expect fun sha256(data: ByteArray): ByteArray
 /** Alarm sound. */
 expect fun alarmBeep()
 expect fun alarmStop()
+
+/** System notification for a D-day secret (Android posts one, desktop uses tray). */
+expect fun notifySecret(title: String, text: String)

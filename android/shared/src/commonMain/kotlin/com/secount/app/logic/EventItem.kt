@@ -43,6 +43,9 @@ class EventItem {
     /** True once the partner has opened it at zero (receipt). */
     var delivered: Boolean = false
 
+    /** Reply thread on a shared secret (receiver answers the sender). */
+    var replyMessage: String = ""
+
     fun nextOccurrence(today: LocalDate): LocalDate {
         if (!repeatYearly) return date
         val day = minOf(
@@ -153,6 +156,7 @@ class EventItem {
             ",\"senderId\":" + q(senderId) +
             ",\"forPartner\":" + forPartner +
             ",\"delivered\":" + delivered +
+            ",\"replyMessage\":" + q(replyMessage) +
             ",\"createdAt\":" + q(createdAt.toString()) + "}"
     }
 
@@ -214,6 +218,8 @@ class EventItem {
                         "senderId" -> e.senderId = JsonUtil.unquote(`val`)
                         "forPartner" -> e.forPartner = `val`.toBoolean()
                         "delivered" -> e.delivered = `val`.toBoolean()
+                        "replyMessage" -> e.replyMessage = JsonUtil.unquote(`val`)
+                        "reply" -> e.replyMessage = JsonUtil.unquote(`val`)
                         "createdAt" -> e.createdAt = LocalDateTime.parse(JsonUtil.unquote(`val`))
                         else -> {}
                     }

@@ -33,7 +33,8 @@ data class SyncResult(
     var severDeclined: Boolean = false,
     var severed: Boolean = false,
     var changed: Boolean = false,
-    var offline: Boolean = false
+    var offline: Boolean = false,
+    var replyReceived: Boolean = false
 )
 
 class PairStore(ns: String = "") {
@@ -82,6 +83,13 @@ class PairStore(ns: String = "") {
     fun wantSever(): Boolean = prefsGet(k("want_sever")) == "1"
     fun setWantSever(v: Boolean) = prefsPut(k("want_sever"), if (v) "1" else "")
 
+    fun lastUnpairReqAt(): Long = prefsGet(k("unpair_req_at"))?.toLongOrNull() ?: 0L
+    fun setLastUnpairReqAt(v: Long) = prefsPut(k("unpair_req_at"), v.toString())
+
+    fun lastSeverTopic(): String = prefsGet(k("last_sever_topic")) ?: ""
+    fun lastSeverPartnerCode(): String = prefsGet(k("last_sever_pcode")) ?: ""
+    fun lastSeverAt(): Long = prefsGet(k("last_sever_at"))?.toLongOrNull() ?: 0L
+
     fun pairTopic(): String? {
         if (!isPaired()) return null
         return PairNet.pairTopic(myCode, partnerCode())
@@ -97,6 +105,20 @@ class PairStore(ns: String = "") {
     }
 
     fun sever(store: EventStore) {
+        // Remember the old link so we can re-announce the sever for a few
+        // minutes afterwards. Otherwise the partner can stay "connected"
+        // forever if it missed the single unpair-done post (offline, cursor
+        // already moved, app closed) — the reported one-sided disconnect.
+        try {
+            val topic = pairTopic()
+            val pcode = partnerCode()
+            if (topic != null && pcode.isNotEmpty()) {
+                prefsPut(k("last_sever_topic"), topic)
+                prefsPut(k("last_sever_pcode"), pcode)
+                prefsPut(k("last_sever_at"), nowSec().toString())
+            }
+        } catch (ignored: Exception) {
+        }
         val exPartner = partnerId()
         prefsPut(k("partner_id"), "")
         prefsPut(k("partner_code"), "")
@@ -246,10 +268,56 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
                 }
             }
             sendUnsent()
+            // While I wait for my partner to agree, keep re-posting my
+            // unpair-request so they see it even if they missed the first one.
+            if (pair.isPaired() && pair.wantSever()) resendUnpairRequestIfDue()
+            // After I severed, keep re-announcing unpair-done for a few
+            // minutes so a partner that missed the first post still drops.
+            if (!pair.isPaired()) reannounceSeverIfFresh()
         } catch (e: Exception) {
             res.offline = true
         }
         res
+    }
+
+    /**
+     * While I want out (requested, waiting for partner agreement) re-publish
+     * unpair-request so the partner sees it even if they already consumed my
+     * first post. Throttled to ~20s.
+     */
+    private fun resendUnpairRequestIfDue() {
+        if (!pair.isPaired() || !pair.wantSever()) return
+        val now = nowSec()
+        if (now - pair.lastUnpairReqAt() < 20) return
+        try {
+            val topic = pair.pairTopic() ?: return
+            httpPost(PairNet.BASE + "/" + topic, envelope("unpair-request", "{}"), 10000)
+            pair.setLastUnpairReqAt(now)
+        } catch (ignored: Exception) {
+        }
+    }
+
+    /**
+     * After severing locally, re-announce unpair-done for ~5 minutes so the
+     * partner eventually drops too (fixes permanent one-sided disconnect).
+     */
+    private fun reannounceSeverIfFresh() {
+        val topic = pair.lastSeverTopic()
+        if (topic.isEmpty()) return
+        val age = nowSec() - pair.lastSeverAt()
+        if (age < 0 || age > 300) return
+        try {
+            val body = envelope("unpair-done", "{}")
+            httpPost(PairNet.BASE + "/" + topic, body, 8000)
+            val pcode = pair.lastSeverPartnerCode()
+            if (pcode.isNotEmpty()) {
+                try {
+                    httpPost(PairNet.BASE + "/" + PairNet.inboxTopic(pcode), body, 8000)
+                } catch (ignored: Exception) {
+                }
+            }
+        } catch (ignored: Exception) {
+        }
     }
 
     /** Retry publishing partner countdowns that failed to send while offline. */
@@ -355,10 +423,23 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
         }
     }
 
+    /** Send / update the reply thread on a shared secret countdown. */
+    suspend fun sendReply(itemId: String, reply: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val topic = pair.pairTopic() ?: return@withContext false
+            val data = "{\"id\":" + q(itemId) + ",\"reply\":" + q(reply) + "}"
+            httpPost(PairNet.BASE + "/" + topic, envelope("reply", data), 12000)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     /** I want out: tell the partner, wait for their agreement (or instant if asked already). */
     suspend fun requestSever(): Boolean = withContext(Dispatchers.IO) {
         if (!pair.isPaired()) return@withContext false
         pair.setWantSever(true)
+        pair.setLastUnpairReqAt(nowSec())
         return@withContext try {
             val topic = pair.pairTopic() ?: return@withContext true
             httpPost(PairNet.BASE + "/" + topic, envelope("unpair-request", "{}"), 12000)
@@ -469,8 +550,30 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
                 if (!pair.isPaired() || from != pair.partnerId()) return
                 try {
                     val item = EventItem.fromJson(dataRaw)
+                    // The receiver must never be able to edit/overwrite: only
+                    // accept items actually created by the sender. A receiver
+                    // echoing back our own item has senderId != from -> drop.
+                    if (item.senderId.isNotEmpty() && item.senderId != from) return
                     item.senderId = from
                     store.addOrUpdate(item)
+                    res.changed = true
+                } catch (ignored: Exception) {
+                }
+            }
+            "reply" -> {
+                if (!pair.isPaired() || from != pair.partnerId()) return
+                try {
+                    val d = PairStore.flatMap(dataRaw)
+                    val id = d["id"] ?: return
+                    val reply = d["reply"] ?: ""
+                    val item = store.byId(id) ?: return
+                    // Only shared partner items carry a reply thread.
+                    if (!item.forPartner && !item.isForMe(pair.accountId)) {
+                        if (item.senderId != pair.accountId && item.senderId != from) return
+                    }
+                    item.replyMessage = reply
+                    store.addOrUpdate(item)
+                    res.replyReceived = true
                     res.changed = true
                 } catch (ignored: Exception) {
                 }

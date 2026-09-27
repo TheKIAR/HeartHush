@@ -34,10 +34,13 @@ both, so files are interchangeable.
 - First-run PIN is `1234`. Enter it to unlock. Use **PIN** to change it or lock now.
 - Tap **Connect** to see your 6-letter code. Tell it to your partner, enter THEIR
   code, and when both sides have entered each other's codes you are linked.
-- Create with `Send to: To partner (...)` to send a countdown. You see the timer,
-  they get the message at zero. `✉ TO PARTNER` / `✉ DELIVERED` shows the receipt.
+- Create with `Send to: To partner (...)` to send a countdown. You keep the timer,
+  they see nothing until zero — then they get a "You Have a Secret Message Open it"
+  notification plus a sealed 🎁 card with an OPEN MESSAGE button. They can never
+  edit your countdown, only reply to it. `✉ TO PARTNER` / `✉ DELIVERED` shows the receipt.
 - **Disconnect** only severs when both agree: one side requests, the other must
-  tap AGREE. Declining keeps you connected.
+  tap AGREE. Declining keeps you connected. Sever is re-announced for a few minutes
+  so both sides always end up disconnected together.
 
 ## ▶ Run on Windows (no install)
 

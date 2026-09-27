@@ -1,5 +1,6 @@
 package com.secount.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -337,7 +338,10 @@ fun App() {
                 }
             }
         ) {
-            Column(Modifier.fillMaxSize()) {
+            Column(
+                Modifier.fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
                 TopAppBar(
                     title = { Text("♥ Secount Countdowns") },
                     navigationIcon = {
@@ -592,7 +596,8 @@ private fun PinGate(pin: PinLock, themeName: String, darkMode: String, onUnlock:
     var denied by remember { mutableStateOf(false) }
     SecountTheme(themeName, darkMode) {
         Column(
-            Modifier.fillMaxSize().padding(32.dp),
+            Modifier.fillMaxSize().padding(32.dp)
+                .background(MaterialTheme.colorScheme.background),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {

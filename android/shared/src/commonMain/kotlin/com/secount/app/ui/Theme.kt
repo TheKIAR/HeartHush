@@ -83,10 +83,19 @@ fun themeByName(name: String): NamedTheme =
     THEMES.firstOrNull { it.name == name } ?: THEMES[0]
 
 @Composable
-fun SecountTheme(themeName: String = THEMES[0].name, content: @Composable () -> Unit) {
+fun SecountTheme(
+    themeName: String = THEMES[0].name,
+    darkMode: String = "System",
+    content: @Composable () -> Unit
+) {
     val t = themeByName(themeName)
+    val dark = when (darkMode) {
+        "Light" -> false
+        "Dark" -> true
+        else -> isSystemInDarkTheme()
+    }
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) t.dark else t.light,
+        colorScheme = if (dark) t.dark else t.light,
         content = content
     )
 }

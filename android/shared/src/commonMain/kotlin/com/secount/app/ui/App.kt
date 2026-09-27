@@ -111,6 +111,7 @@ fun App() {
     var notice by remember { mutableStateOf<String?>(null) }
     var syncing by remember { mutableStateOf(false) }
     var themeName by remember { mutableStateOf(prefsGet("secount_theme") ?: THEMES[0].name) }
+    var darkMode by remember { mutableStateOf(prefsGet("secount_darkmode") ?: "System") }
     val shownSecrets = remember { mutableSetOf<String>() }
 
     fun refresh() {
@@ -229,7 +230,7 @@ fun App() {
         }
     }
 
-    SecountTheme(themeName) {
+    SecountTheme(themeName, darkMode) {
         val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
         fun closeDrawer() {
             scope.launch { try {
@@ -298,6 +299,23 @@ fun App() {
                             selected = false,
                             onClick = { showPin = true; closeDrawer() }
                         )
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider()
+                        Spacer(Modifier.height(8.dp))
+                        Text("APPEARANCE", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        for (m in listOf("System", "Light", "Dark")) {
+                            NavigationDrawerItem(
+                                label = { Text((if (m == darkMode) "● " else "○ ") + m) },
+                                selected = m == darkMode,
+                                onClick = {
+                                    darkMode = m
+                                    try {
+                                        prefsPut("secount_darkmode", m)
+                                    } catch (ignored: Exception) {
+                                    }
+                                }
+                            )
+                        }
                         Spacer(Modifier.height(8.dp))
                         HorizontalDivider()
                         Spacer(Modifier.height(8.dp))

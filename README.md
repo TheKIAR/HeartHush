@@ -39,7 +39,9 @@ both, so files are interchangeable.
 
 ## ▶ Run on Windows (no install)
 
-Double-click `run.bat` (it picks a Java 17+ runtime for you):
+`HeartHush.exe` — run the installer, then launch HeartHush from the Start menu.
+No Java needed (runtime is bundled). Or double-click `run.bat` (it picks a
+Java 17+ runtime for you):
 
 ```bat
 run.bat
@@ -62,6 +64,7 @@ Windows app (same UI as the APK):
 ```bat
 build.bat
 ```
+Builds `HeartHush.jar` + `HeartHush.exe` (same UI as the APK).
 
 Android APK:
 
@@ -72,5 +75,6 @@ android\build-apk.bat
 Both reuse your local Android SDK and auto-download JDK 17 + Gradle on first run.
 Shared-logic tests: `gradle -p android :shared:desktopTest`.
 
-GitHub Actions runs the tests and rebuilds `HeartHush-debug.apk` on every push
-to `main`. (`HeartHush.jar` is Windows-only, so it is built and committed locally.)
+GitHub Actions (Windows runner) runs the tests and rebuilds
+`HeartHush.jar` + `HeartHush.exe` + `HeartHush-debug.apk` on every push
+to `main`.

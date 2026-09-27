@@ -196,6 +196,35 @@ class SyncLiveTest {
     }
 
     @Test
+    fun staggeredPairLinksBoth() = runBlocking {
+        // Real-world timing: A sends, B sees it BEFORE entering A's code,
+        // then B sends, A pairs first, B must still pair via accept.
+        val (pairA, _, engineA) = party("qa", dirA)
+        val (pairB, _, engineB) = party("qb", dirB)
+
+        assertTrue(engineA.sendPairRequest(pairB.myCode))
+        // B syncs too early: only records incoming, cannot pair yet.
+        engineB.syncNow()
+        assertFalse(pairB.isPaired(), "B must not pair before entering A's code")
+        assertTrue(pairB.incoming().any { it.code == pairA.myCode }, "B should see A's request")
+
+        // Now B enters A's code and syncs (its cursor already consumed A's request).
+        assertTrue(engineB.sendPairRequest(pairA.myCode))
+        engineB.syncNow()
+        assertFalse(pairB.isPaired(), "B still waiting until A pairs + accepts")
+
+        // A syncs, sees B's request, pairs and broadcasts accept dual-channel.
+        val rA = engineA.syncNow()
+        assertTrue(pairA.isPaired(), "A pairs on mutual request")
+        assertEquals(pairB.accountId, pairA.partnerId())
+
+        // B's next sync must pick up the accept (inbox or pending pair-topic).
+        val rB2 = engineB.syncNow()
+        assertTrue(pairB.isPaired(), "B must pair via accept, justPaired=${rB2.justPaired}")
+        assertEquals(pairA.accountId, pairB.partnerId())
+    }
+
+    @Test
     fun countdownDeliversToPartner() = runBlocking {
         val (pairA, storeA, engineA) = party("da", dirA)
         val (pairB, storeB, engineB) = party("db", dirB)

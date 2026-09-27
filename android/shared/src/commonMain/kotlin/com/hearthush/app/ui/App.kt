@@ -132,11 +132,11 @@ fun App() {
             tick++
         }
     }
-    // online sync every 25s + once at launch
+    // online sync every 25s when linked, every 8s while waiting to pair
     LaunchedEffect(Unit) {
         doSync()
         while (true) {
-            delay(25_000)
+            delay(if (pair.isPaired()) 25_000 else 8_000)
             doSync()
         }
     }
@@ -455,6 +455,22 @@ private fun ConnectDialog(
         waiting = pair.wantSever()
     }
 
+    // Auto-sync every 5s while the dialog is open so the second device
+    // pairs without having to press SYNC. Stops once linked (background
+    // 25s loop takes over), but keeps watching for incoming requests.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(5_000)
+            try {
+                val res = engine.syncNow()
+                reload()
+                if (res.justPaired) onNotice("Connected! You can now send countdowns to each other.")
+                if (res.severAsked) onSeverPrompt()
+            } catch (ignored: Exception) {
+            }
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text("Connect to a partner") },
@@ -516,7 +532,7 @@ private fun ConnectDialog(
                     }) { Text(if (busy) "…" else "SEND REQUEST") }
                     if (pending.isNotEmpty()) {
                         Spacer(Modifier.height(4.dp))
-                        Text("Waiting on $pending…", fontSize = 12.sp)
+                        Text("Waiting on $pending… auto-retrying every few seconds. Keep this open.", fontSize = 12.sp)
                     }
                     if (incoming.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))

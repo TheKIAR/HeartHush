@@ -1,4 +1,4 @@
-name: Build HeartHush APK
+name: Build HeartHush exe + APK
 
 on:
   push:
@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Windows runner: jpackage Exe needs Windows; Android SDK works here too.
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,25 +26,32 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
       - name: Set up Gradle
+        shell: pwsh
         run: |
-          curl -sL -o gradle.zip https://services.gradle.org/distributions/gradle-8.13-bin.zip
-          unzip -q gradle.zip -d "$HOME/gradle"
-          echo "$HOME/gradle/gradle-8.13/bin" >> "$GITHUB_PATH"
+          curl.exe -sL -o gradle.zip https://services.gradle.org/distributions/gradle-8.13-bin.zip
+          Expand-Archive -Path gradle.zip -DestinationPath "$HOME/gradle" -Force
+          "$HOME/gradle/gradle-8.13/bin" | Out-File -FilePath $env:GITHUB_PATH -Append
       - name: Test shared logic
+        shell: pwsh
         run: gradle -p android :shared:desktopTest
-      - name: Build debug APK
+      - name: Build jar + exe + APK
+        shell: pwsh
         run: |
-          gradle -p android :androidApp:assembleDebug
-          cp android/androidApp/build/outputs/apk/debug/androidApp-debug.apk HeartHush-debug.apk
-      - name: Commit updated APK
+          gradle -p android :desktopApp:packageUberJarForCurrentOS :desktopApp:packageExe :androidApp:assembleDebug
+          $jars = Get-ChildItem android/desktopApp/build/compose/jars/*.jar
+          if ($jars.Count -eq 0) { throw "No jar built" }
+          Copy-Item -Force $jars[0].FullName HeartHush.jar
+          Copy-Item -Force android/desktopApp/build/compose/binaries/main/exe/HeartHush-1.0.0.exe HeartHush.exe
+          Copy-Item -Force android/androidApp/build/outputs/apk/debug/androidApp-debug.apk HeartHush-debug.apk
+      - name: Commit updated binaries
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot].users.noreply.github.com"
-          git add HeartHush-debug.apk
+          git add HeartHush.jar HeartHush.exe HeartHush-debug.apk
           if git diff --cached --quiet; then
-            echo "No APK changes to commit."
+            echo "No binary changes to commit."
           else
-            git commit -m "Build updated HeartHush-debug.apk"
+            git commit -m "Build updated HeartHush.jar + HeartHush.exe + HeartHush-debug.apk"
             git push
           fi

@@ -12,5 +12,12 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "com.hearthush.app.desktop.MainKt"
+        nativeDistributions {
+            packageName = "HeartHush"
+            packageVersion = "1.0.0"
+            vendor = "HeartHush"
+            description = "HeartHush Countdown Studio - same UI on Windows and Android"
+            targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Exe)
+        }
     }
 }

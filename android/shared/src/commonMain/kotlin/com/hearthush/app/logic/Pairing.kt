@@ -65,7 +65,19 @@ class PairStore(ns: String = "") {
     fun pairedAt(): Long = prefsGet(k("paired_at"))?.toLongOrNull() ?: 0L
 
     fun pendingCode(): String = prefsGet(k("pending_code")) ?: ""
-    fun setPending(code: String) = prefsPut(k("pending_code"), code)
+    fun setPending(code: String) {
+        prefsPut(k("pending_code"), code)
+        if (code.isEmpty()) {
+            prefsPut(k("pending_at"), "")
+        } else {
+            prefsPut(k("pending_at"), nowSec().toString())
+            // allow an immediate resend on next sync
+            prefsPut(k("pending_resend_at"), "")
+        }
+    }
+    fun pendingAt(): Long = prefsGet(k("pending_at"))?.toLongOrNull() ?: 0L
+    fun lastResendAt(): Long = prefsGet(k("pending_resend_at"))?.toLongOrNull() ?: 0L
+    fun setLastResendAt(v: Long) = prefsPut(k("pending_resend_at"), v.toString())
 
     fun wantSever(): Boolean = prefsGet(k("want_sever")) == "1"
     fun setWantSever(v: Boolean) = prefsPut(k("want_sever"), if (v) "1" else "")
@@ -106,13 +118,40 @@ class PairStore(ns: String = "") {
         val out = mutableListOf<IncomingReq>()
         try {
             val t = raw.trim()
-            if (!t.startsWith("[")) return out
-            for (part in JsonUtil.splitTopLevel(t.substring(1, t.length - 1))) {
-                val p = part.trim()
-                if (!p.startsWith("{")) continue
-                val map = flatMap(p)
-                val code = map["code"] ?: continue
-                out.add(IncomingReq(code, map["id"] ?: "", map["at"]?.toLongOrNull() ?: 0L))
+            if (!t.startsWith("[") || !t.endsWith("]")) return out
+            val inside = t.substring(1, t.length - 1).trim()
+            if (inside.isEmpty()) return out
+            // Split array into object elements by scanning (do NOT use
+            // splitTopLevel here: it strips a single {...} and would return
+            // fields instead of one element).
+            var depth = 0
+            var inStr = false
+            var start = -1
+            var i = 0
+            while (i < inside.length) {
+                val c = inside[i]
+                if (inStr) {
+                    if (c == '\\' && i + 1 < inside.length) i++
+                    else if (c == '"') inStr = false
+                } else {
+                    if (c == '"') inStr = true
+                    else if (c == '{') {
+                        if (depth == 0) start = i
+                        depth++
+                    } else if (c == '}') {
+                        depth--
+                        if (depth == 0 && start >= 0) {
+                            val obj = inside.substring(start, i + 1)
+                            val map = flatMap(obj)
+                            val code = map["code"] ?: ""
+                            if (code.isNotEmpty()) {
+                                out.add(IncomingReq(code, map["id"] ?: "", map["at"]?.toLongOrNull() ?: 0L))
+                            }
+                            start = -1
+                        }
+                    }
+                }
+                i++
             }
         } catch (ignored: Exception) {
         }
@@ -179,12 +218,33 @@ class PairStore(ns: String = "") {
 
 class SyncEngine(private val store: EventStore, private val pair: PairStore) {
 
-    /** Poll inbox (+ pair topic when linked) and process everything. Never throws. */
+    /** Poll inbox (+ pair topic when linked, or pending pair topic while waiting) and process everything. Never throws. */
     suspend fun syncNow(): SyncResult = withContext(Dispatchers.IO) {
         val res = SyncResult()
         try {
             pollTopic(PairNet.inboxTopic(pair.myCode), res)
-            pair.pairTopic()?.let { pollTopic(it, res) }
+            val linked = pair.pairTopic()
+            if (linked != null) {
+                pollTopic(linked, res)
+                // Re-announce a fresh link for a few minutes so a late-polling
+                // partner still sees the accept even if it missed the first one.
+                reannounceAcceptIfFresh()
+            } else {
+                val pending = pair.pendingCode()
+                if (pending.isNotEmpty()) {
+                    // Listen for the accept even before we are linked.
+                    try {
+                        pollTopic(PairNet.pairTopic(pair.myCode, pending), res)
+                    } catch (ignored: Exception) {
+                    }
+                    resendPendingIfDue()
+                    // If the other side already asked before we entered their
+                    // code, its original request is already consumed (since
+                    // cursor moved). Re-check: mutual pending means linked.
+                    // The resend above guarantees they will see us next sync,
+                    // and their resend guarantees we will see them.
+                }
+            }
             sendUnsent()
         } catch (e: Exception) {
             res.offline = true
@@ -209,12 +269,65 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
 
     fun markSent(id: String) = prefsPut(pair.k("sent_" + id), "1")
 
+    /**
+     * While waiting (pending set, not yet paired) re-publish our request so
+     * the other side sees it even if it already consumed our first post
+     * before entering our code. Throttled to ~20s to avoid spamming ntfy.
+     */
+    private fun resendPendingIfDue() {
+        val pending = pair.pendingCode()
+        if (pending.isEmpty() || pair.isPaired()) return
+        val now = nowSec()
+        if (now - pair.lastResendAt() < 20) return
+        try {
+            val data = "{\"code\":" + q(pair.myCode) + ",\"id\":" + q(pair.accountId) + "}"
+            httpPost(PairNet.BASE + "/" + PairNet.inboxTopic(pending), envelope("pair-request", data), 10000)
+            pair.setLastResendAt(now)
+        } catch (ignored: Exception) {
+        }
+    }
+
+    /**
+     * For a few minutes after linking, re-announce the accept on every sync.
+     * This covers the case where the partner's inbox cursor already moved
+     * past our first accept post.
+     */
+    private fun reannounceAcceptIfFresh() {
+        if (!pair.isPaired()) return
+        val age = nowSec() - pair.pairedAt()
+        if (age < 0 || age > 300) return
+        try {
+            val topic = pair.pairTopic() ?: return
+            val body = envelope("pair-accept", "{\"code\":" + q(pair.myCode) + "}")
+            httpPost(PairNet.BASE + "/" + topic, body, 8000)
+            // Dual-channel: also drop it straight into their inbox.
+            httpPost(PairNet.BASE + "/" + PairNet.inboxTopic(pair.partnerCode()), body, 8000)
+        } catch (ignored: Exception) {
+        }
+    }
+
+    /** Publish pair-accept on BOTH the shared pair topic AND the partner's inbox. */
+    private fun sendAcceptDual(partnerCode: String) {
+        val body = envelope("pair-accept", "{\"code\":" + q(pair.myCode) + "}")
+        try {
+            publishQuiet(PairNet.pairTopic(pair.myCode, partnerCode), body)
+        } catch (ignored: Exception) {
+        }
+        try {
+            publishQuiet(PairNet.inboxTopic(partnerCode), body)
+        } catch (ignored: Exception) {
+        }
+    }
+
     suspend fun sendPairRequest(code: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val clean = code.trim().uppercase()
+            if (clean == pair.myCode) return@withContext false
+            if (!PairStore.looksLikeCode(clean)) return@withContext false
             val data = "{\"code\":" + q(pair.myCode) + ",\"id\":" + q(pair.accountId) + "}"
             httpPost(PairNet.BASE + "/" + PairNet.inboxTopic(clean), envelope("pair-request", data), 12000)
             pair.setPending(clean)
+            pair.setLastResendAt(nowSec())
             true
         } catch (e: Exception) {
             false
@@ -323,8 +436,8 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
                 val code = (d["code"] ?: "").uppercase()
                 if (code.isEmpty()) return
                 if (pair.isPaired() && code == pair.partnerCode() && from == pair.partnerId()) {
-                    // repair: re-confirm an existing link
-                    publishQuiet(pair.pairTopic()!!, envelope("pair-accept", "{\"code\":" + q(pair.myCode) + "}"))
+                    // repair: re-confirm an existing link on both channels
+                    sendAcceptDual(code)
                     return
                 }
                 if (pair.isPaired()) return
@@ -332,10 +445,7 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
                 // mutual: I already entered their code -> we are linked
                 if (pair.pendingCode() == code) {
                     pair.completePairing(from, code)
-                    publishQuiet(
-                        PairNet.pairTopic(pair.myCode, code),
-                        envelope("pair-accept", "{\"code\":" + q(pair.myCode) + "}")
-                    )
+                    sendAcceptDual(code)
                     res.justPaired = true
                 }
                 res.changed = true
@@ -343,9 +453,15 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
             "pair-accept" -> {
                 val d = PairStore.flatMap(dataRaw)
                 val code = (d["code"] ?: "").uppercase()
-                if (!pair.isPaired() && pair.pendingCode() == code && code.isNotEmpty()) {
+                if (code.isEmpty()) return
+                if (!pair.isPaired() && pair.pendingCode() == code) {
                     pair.completePairing(from, code)
+                    // Confirm back so the other side stops re-announcing.
+                    sendAcceptDual(code)
                     res.justPaired = true
+                    res.changed = true
+                } else if (pair.isPaired() && code == pair.partnerCode() && from == pair.partnerId()) {
+                    // Late duplicate accept: harmless, ensures both stay linked.
                     res.changed = true
                 }
             }

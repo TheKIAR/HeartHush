@@ -163,7 +163,7 @@ fun App() {
     }
 
     if (!unlocked) {
-        PinGate(pin, onUnlock = { unlocked = pin.isUnlocked(); refresh() })
+        PinGate(pin, themeName, darkMode, onUnlock = { unlocked = pin.isUnlocked(); refresh() })
         return
     }
 
@@ -587,10 +587,10 @@ fun App() {
 }
 
 @Composable
-private fun PinGate(pin: PinLock, onUnlock: () -> Unit) {
+private fun PinGate(pin: PinLock, themeName: String, darkMode: String, onUnlock: () -> Unit) {
     var entry by remember { mutableStateOf("") }
     var denied by remember { mutableStateOf(false) }
-    SecountTheme {
+    SecountTheme(themeName, darkMode) {
         Column(
             Modifier.fillMaxSize().padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,

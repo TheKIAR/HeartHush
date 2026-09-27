@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-REM HeartHush launcher - picks a Java 17+ runtime explicitly.
+REM Secount launcher - picks a Java 17+ runtime explicitly.
 REM (Double-clicking the .jar directly fails on machines where .jar
 REM files are still associated with an old Java 8.)
 set "JAVACMD="
@@ -23,4 +23,4 @@ if not defined JAVACMD (
   pause
   exit /b 1
 )
-"!JAVACMD!" -jar "%~dp0HeartHush.jar"
+"!JAVACMD!" -jar "%~dp0Secount.jar"

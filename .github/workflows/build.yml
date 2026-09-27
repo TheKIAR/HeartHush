@@ -1,4 +1,4 @@
-name: Build HeartHush exe + APK
+name: Build Secount exe + APK
 
 on:
   push:
@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: true
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -40,18 +42,18 @@ jobs:
           gradle -p android :desktopApp:packageUberJarForCurrentOS :desktopApp:packageExe :androidApp:assembleDebug
           $jars = Get-ChildItem android/desktopApp/build/compose/jars/*.jar
           if ($jars.Count -eq 0) { throw "No jar built" }
-          Copy-Item -Force $jars[0].FullName HeartHush.jar
-          Copy-Item -Force android/desktopApp/build/compose/binaries/main/exe/HeartHush-1.0.0.exe HeartHush.exe
-          Copy-Item -Force android/androidApp/build/outputs/apk/debug/androidApp-debug.apk HeartHush-debug.apk
+          Copy-Item -Force $jars[0].FullName Secount.jar
+          Copy-Item -Force android/desktopApp/build/compose/binaries/main/exe/Secount-1.0.0.exe Secount.exe
+          Copy-Item -Force android/androidApp/build/outputs/apk/debug/androidApp-debug.apk Secount-debug.apk
       - name: Commit updated binaries
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot].users.noreply.github.com"
-          git add HeartHush.jar HeartHush.exe HeartHush-debug.apk
+          git add Secount.jar Secount.exe Secount-debug.apk
           if git diff --cached --quiet; then
             echo "No binary changes to commit."
           else
-            git commit -m "Build updated HeartHush.jar + HeartHush.exe + HeartHush-debug.apk"
+            git commit -m "Build updated Secount.jar + Secount.exe + Secount-debug.apk"
             git push
           fi

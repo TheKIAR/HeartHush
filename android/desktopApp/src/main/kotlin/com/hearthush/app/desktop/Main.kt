@@ -9,7 +9,7 @@ import com.hearthush.app.ui.App
 fun main() = application {
     Window(
         onCloseRequest = ::exitApplication,
-        title = "HeartHush • Countdowns",
+        title = "Secount ♥ Countdowns",
         state = rememberWindowState(width = 480.dp, height = 860.dp)
     ) {
         App()

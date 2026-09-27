@@ -198,7 +198,7 @@ fun App() {
     HeartHushTheme {
         Column(Modifier.fillMaxSize()) {
             TopAppBar(
-                title = { Text("♥ HeartHush Countdowns") },
+                title = { Text("♥ Secount Countdowns") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary
@@ -328,7 +328,7 @@ fun App() {
         notice?.let { msg ->
             AlertDialog(
                 onDismissRequest = { notice = null },
-                title = { Text("HeartHush") },
+                title = { Text("Secount") },
                 text = { Text(msg) },
                 confirmButton = {
                     TextButton(onClick = { notice = null }) { Text("OK") }
@@ -404,7 +404,7 @@ private fun PinGate(pin: PinLock, onUnlock: () -> Unit) {
         ) {
             Text("♥", fontSize = 48.sp)
             Spacer(Modifier.height(12.dp))
-            Text("HeartHush", fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Text("Secount", fontSize = 28.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
             Text(
                 if (pin.isDefaultPin()) "First run PIN is 1234 — change it in PIN settings."

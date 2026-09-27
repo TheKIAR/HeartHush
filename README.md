@@ -1,4 +1,6 @@
-# HeartHush ♥ Countdown Studio
+# Secount ♥ Countdown Studio
+
+**Se**cret + **Count**: secrets revealed only at zero.
 
 One app, two homes — **the exact same UI** on Windows and Android — for
 **any kind of countdown**: birthdays, exams, weddings, holidays, trips, work
@@ -39,7 +41,7 @@ both, so files are interchangeable.
 
 ## ▶ Run on Windows (no install)
 
-`HeartHush.exe` — run the installer, then launch HeartHush from the Start menu.
+`Secount.exe` — run the installer, then launch Secount from the Start menu.
 No Java needed (runtime is bundled). Or double-click `run.bat` (it picks a
 Java 17+ runtime for you):
 
@@ -47,14 +49,14 @@ Java 17+ runtime for you):
 run.bat
 ```
 
-> Do **not** double-click `HeartHush.jar` directly if your `.jar` files are
+> Do **not** double-click `Secount.jar` directly if your `.jar` files are
 > associated with an old Java 8 — it will fail with
-> `UnsupportedClassVersionError`. `run.bat` avoids that. `HeartHush.jar`
+> `UnsupportedClassVersionError`. `run.bat` avoids that. `Secount.jar`
 > shows the exact same UI as the Android app, packaged with everything it needs.
 
 ## 📱 Run on Android (test APK)
 
-`HeartHush-debug.apk` — copy it to your phone, open it, allow "install unknown
+`Secount-debug.apk` — copy it to your phone, open it, allow "install unknown
 apps" once. Requires Android 8.0 (API 26) or newer.
 
 ## 🛠 Build
@@ -65,7 +67,7 @@ Windows app (same UI as the APK):
 build.bat
 ```
 
-Builds `HeartHush.jar` + `HeartHush.exe` (same UI as the APK).
+Builds `Secount.jar` + `Secount.exe` (same UI as the APK).
 
 Android APK:
 
@@ -77,5 +79,5 @@ Both reuse your local Android SDK and auto-download JDK 17 + Gradle on first run
 Shared-logic tests: `gradle -p android :shared:desktopTest`.
 
 GitHub Actions (Windows runner) runs the tests and rebuilds
-`HeartHush.jar` + `HeartHush.exe` + `HeartHush-debug.apk` on every push
+`Secount.jar` + `Secount.exe` + `Secount-debug.apk` on every push
 to `main`.

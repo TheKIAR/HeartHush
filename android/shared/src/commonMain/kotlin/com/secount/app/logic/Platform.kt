@@ -21,5 +21,8 @@ expect fun sha256(data: ByteArray): ByteArray
 expect fun alarmBeep()
 expect fun alarmStop()
 
+/** True when the OS itself is in dark mode (used for the "System" appearance). */
+expect fun isSystemDark(): Boolean
+
 /** System notification for a D-day secret (Android posts one, desktop uses tray). */
 expect fun notifySecret(title: String, text: String)

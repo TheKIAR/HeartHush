@@ -175,6 +175,17 @@ actual fun alarmStop() {
     stop = true
 }
 
+actual fun isSystemDark(): Boolean {
+    return try {
+        val ctx = AppCtx.app ?: return false
+        val mask = ctx.resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        mask == android.content.res.Configuration.UI_MODE_NIGHT_YES
+    } catch (e: Exception) {
+        false
+    }
+}
+
 actual fun notifySecret(title: String, text: String) {
     try {
         val ctx = AppCtx.app ?: return

@@ -181,6 +181,60 @@ actual fun alarmStop() {
     stop = true
 }
 
+@Volatile
+private var cachedDark = false
+
+@Volatile
+private var cachedDarkAt = 0L
+
+/**
+ * Compose's isSystemInDarkTheme() doesn't reliably see Windows dark mode
+ * from the jar, so read the OS setting directly (re-checked every 10s).
+ */
+actual fun isSystemDark(): Boolean {
+    val now = System.currentTimeMillis()
+    if (now - cachedDarkAt < 10_000) return cachedDark
+    cachedDark = detectSystemDark()
+    cachedDarkAt = now
+    return cachedDark
+}
+
+private fun detectSystemDark(): Boolean {
+    // Windows: HKCU ...\Personalize\AppsUseLightTheme (0 = dark, 1 = light).
+    try {
+        val os = System.getProperty("os.name") ?: ""
+        if (os.startsWith("Windows")) {
+            val p = ProcessBuilder(
+                "reg", "query",
+                "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                "/v", "AppsUseLightTheme"
+            ).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().use { it.readText() }
+            p.waitFor()
+            if (out.contains("AppsUseLightTheme")) {
+                return out.contains("0x0")
+            }
+            return false
+        }
+        if (os.startsWith("Mac")) {
+            val p = ProcessBuilder("defaults", "read", "-g", "AppleInterfaceStyle")
+                .redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().use { it.readText() }.trim()
+            p.waitFor()
+            return out.equals("Dark", ignoreCase = true)
+        }
+        // Linux (GNOME): gtk-theme containing "dark".
+        val p = ProcessBuilder(
+            "gsettings", "get", "org.gnome.desktop.interface", "gtk-theme"
+        ).redirectErrorStream(true).start()
+        val out = p.inputStream.bufferedReader().use { it.readText() }
+        p.waitFor()
+        return out.contains("dark", ignoreCase = true)
+    } catch (ignored: Exception) {
+        return false
+    }
+}
+
 actual fun notifySecret(title: String, text: String) {
     try {
         if (!java.awt.SystemTray.isSupported()) return

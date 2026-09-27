@@ -1,12 +1,12 @@
 package com.secount.app.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.secount.app.logic.isSystemDark
 
 val Brand = Color(0xFFFF5D97)
 val BrandDark = Color(0xFFC2185B)
@@ -92,7 +92,9 @@ fun SecountTheme(
     val dark = when (darkMode) {
         "Light" -> false
         "Dark" -> true
-        else -> isSystemInDarkTheme()
+        // Read the OS directly: Compose's isSystemInDarkTheme() misses
+        // Windows dark mode when running from the jar.
+        else -> isSystemDark()
     }
     MaterialTheme(
         colorScheme = if (dark) t.dark else t.light,

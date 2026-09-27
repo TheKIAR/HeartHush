@@ -1,6 +1,5 @@
 package com.secount.app.ui
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -20,13 +20,18 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -34,6 +39,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,6 +63,8 @@ import com.secount.app.logic.alarmBeep
 import com.secount.app.logic.alarmStop
 import com.secount.app.logic.notifySecret
 import com.secount.app.logic.platformDataDir
+import com.secount.app.logic.prefsGet
+import com.secount.app.logic.prefsPut
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -102,6 +110,7 @@ fun App() {
     var severPrompt by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
     var syncing by remember { mutableStateOf(false) }
+    var themeName by remember { mutableStateOf(prefsGet("secount_theme") ?: THEMES[0].name) }
     val shownSecrets = remember { mutableSetOf<String>() }
 
     fun refresh() {
@@ -220,92 +229,164 @@ fun App() {
         }
     }
 
-    SecountTheme {
-        Column(Modifier.fillMaxSize()) {
-            TopAppBar(
-                title = { Text("♥ Secount Countdowns") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            )
-            Text(
-                "${store.items().size} total • $todayN today • $weekN this week • " +
-                    if (shown.isEmpty()) "nothing" else "next: ${shown[0].title}" +
-                        if (pair.isPaired()) " • ✉ ${pair.partnerCode()}" else " • not connected",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                fontSize = 12.sp
-            )
-            OutlinedTextField(
-                query, { query = it },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                placeholder = { Text("Search countdowns…") },
-                singleLine = true
-            )
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                DropDown("Filter", FILTERS, filter, { filter = it }, Modifier.weight(1f))
-                DropDown("Sort", SORTS, sort, { sort = it }, Modifier.weight(1f))
-            }
-            LazyColumn(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                items(shown, key = { it.id }) { e ->
-                    if (e.isForMe(myId)) {
-                        // Receiver view: sealed card only, no details, no edit.
-                        // The message + reply open through OPEN MESSAGE.
-                        SecretInboxCard(
-                            e,
-                            onOpen = { secretOf = e }
+    SecountTheme(themeName) {
+        val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+        fun closeDrawer() {
+            scope.launch { try {
+                drawerState.close()
+            } catch (ignored: Exception) {
+            } }
+        }
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                ModalDrawerSheet {
+                    Column(
+                        Modifier.padding(16.dp).verticalScroll(rememberScrollState())
+                    ) {
+                        Text("♥ Secount", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                        Text(
+                            if (pair.isPaired()) "✉ Connected to ${pair.partnerCode()}"
+                            else "Not connected",
+                            fontSize = 12.sp
                         )
-                    } else {
-                        EventCard(
-                            e, now, myId,
-                            onEdit = { editing = e.copyFromJson(); editIsNew = false },
-                            onDuplicate = {
-                                val copy = e.copyFromJson()
-                                copy.id = UUID.randomUUID().toString().replace("-", "")
-                                copy.title = e.title + " (copy)"
-                                copy.createdAt = LocalDateTime.now()
-                                copy.senderId = myId
-                                store.addOrUpdate(copy)
-                                if (copy.forPartner) scope.launch { engine.sendCountdown(copy) }
+                        Spacer(Modifier.height(12.dp))
+                        HorizontalDivider()
+                        Spacer(Modifier.height(8.dp))
+                        Text("COUNTDOWNS", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        NavigationDrawerItem(
+                            label = { Text("+ New countdown") },
+                            selected = false,
+                            onClick = {
+                                val item = EventItem()
+                                item.date = LocalDate.now().plusDays(7)
+                                item.senderId = myId
+                                editing = item
+                                editIsNew = true
+                                closeDrawer()
+                            }
+                        )
+                        NavigationDrawerItem(
+                            label = { Text("Add sample countdowns") },
+                            selected = false,
+                            onClick = {
+                                sample(store, myId, "Birthday 🎂", 14, "Birthday", "🎂", "#FFB020", "Cake, friends and music!", true)
+                                sample(store, myId, "Final Exams 🎓", 30, "Exam", "🎓", "#22C4A8", "One chapter a day keeps stress away.", true)
+                                sample(store, myId, "Android App Launch 🚀", 60, "App Release", "🚀", "#7C6CFF", "Release v2.0 to the Play Store.", false)
+                                sample(store, myId, "Beach Trip ✈", 90, "Trip", "✈", "#38BDF8", "Sunscreen, playlists, passports.", false)
+                                sample(store, myId, "Wedding Day 💖", 120, "Wedding", "💖", "#F472B6", "The big day!", true)
                                 refresh()
-                            },
-                            onRing = {
-                                if (e.soundEnabled) alarmBeep()
-                                if (e.hasSecret()) secretOf = e else alarmOf = e
-                            },
-                            onDelete = { confirmDelete = e }
+                                closeDrawer()
+                            }
                         )
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider()
+                        Spacer(Modifier.height(8.dp))
+                        Text("CONNECTION", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        NavigationDrawerItem(
+                            label = { Text(if (syncing) "Syncing…" else "Sync now") },
+                            selected = false,
+                            onClick = { doSync(); closeDrawer() }
+                        )
+                        NavigationDrawerItem(
+                            label = { Text(if (pair.isPaired()) "✉ ${pair.partnerCode()}" else "Connect to partner") },
+                            selected = false,
+                            onClick = { showConnect = true; closeDrawer() }
+                        )
+                        NavigationDrawerItem(
+                            label = { Text("App PIN") },
+                            selected = false,
+                            onClick = { showPin = true; closeDrawer() }
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider()
+                        Spacer(Modifier.height(8.dp))
+                        Text("THEME", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        for (t in THEMES) {
+                            NavigationDrawerItem(
+                                label = { Text((if (t.name == themeName) "● " else "○ ") + t.name) },
+                                selected = t.name == themeName,
+                                onClick = {
+                                    themeName = t.name
+                                    try {
+                                        prefsPut("secount_theme", t.name)
+                                    } catch (ignored: Exception) {
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
-            Row(
-                Modifier.fillMaxWidth().padding(8.dp)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(onClick = {
-                    val item = EventItem()
-                    item.date = LocalDate.now().plusDays(7)
-                    item.senderId = myId
-                    editing = item
-                    editIsNew = true
-                }) { Text("+ New") }
-                OutlinedButton(onClick = {
-                    sample(store, myId, "Birthday 🎂", 14, "Birthday", "🎂", "#FFB020", "Cake, friends and music!", true)
-                    sample(store, myId, "Final Exams 🎓", 30, "Exam", "🎓", "#22C4A8", "One chapter a day keeps stress away.", true)
-                    sample(store, myId, "Android App Launch 🚀", 60, "App Release", "🚀", "#7C6CFF", "Release v2.0 to the Play Store.", false)
-                    sample(store, myId, "Beach Trip ✈", 90, "Trip", "✈", "#38BDF8", "Sunscreen, playlists, passports.", false)
-                    sample(store, myId, "Wedding Day 💖", 120, "Wedding", "💖", "#F472B6", "The big day!", true)
-                    refresh()
-                }) { Text("Samples") }
-                OutlinedButton(onClick = { doSync() }) { Text(if (syncing) "Sync…" else "Sync") }
-                OutlinedButton(onClick = { showConnect = true }) {
-                    Text(if (pair.isPaired()) "✉ ${pair.partnerCode()}" else "Connect")
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                TopAppBar(
+                    title = { Text("♥ Secount Countdowns") },
+                    navigationIcon = {
+                        TextButton(onClick = {
+                            scope.launch { try {
+                                drawerState.open()
+                            } catch (ignored: Exception) {
+                            } }
+                        }) { Text("☰", fontSize = 22.sp, color = MaterialTheme.colorScheme.onPrimary) }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                )
+                Text(
+                    "${store.items().size} total • $todayN today • $weekN this week • " +
+                        if (shown.isEmpty()) "nothing" else "next: ${shown[0].title}" +
+                            if (pair.isPaired()) " • ✉ ${pair.partnerCode()}" else " • not connected",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    fontSize = 12.sp
+                )
+                OutlinedTextField(
+                    query, { query = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    placeholder = { Text("Search countdowns…") },
+                    singleLine = true
+                )
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    DropDown("Filter", FILTERS, filter, { filter = it }, Modifier.weight(1f))
+                    DropDown("Sort", SORTS, sort, { sort = it }, Modifier.weight(1f))
                 }
-                OutlinedButton(onClick = { showPin = true }) { Text("PIN") }
+                LazyColumn(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                    items(shown, key = { it.id }) { e ->
+                        if (e.isForMe(myId)) {
+                            // Receiver view: sealed card only, no details, no edit.
+                            // The message + reply open through OPEN MESSAGE.
+                            SecretInboxCard(
+                                e,
+                                onOpen = { secretOf = e }
+                            )
+                        } else {
+                            EventCard(
+                                e, now, myId,
+                                onEdit = { editing = e.copyFromJson(); editIsNew = false },
+                                onDuplicate = {
+                                    val copy = e.copyFromJson()
+                                    copy.id = UUID.randomUUID().toString().replace("-", "")
+                                    copy.title = e.title + " (copy)"
+                                    copy.createdAt = LocalDateTime.now()
+                                    copy.senderId = myId
+                                    store.addOrUpdate(copy)
+                                    if (copy.forPartner) scope.launch { engine.sendCountdown(copy) }
+                                    refresh()
+                                },
+                                onRing = {
+                                    if (e.soundEnabled) alarmBeep()
+                                    if (e.hasSecret()) secretOf = e else alarmOf = e
+                                },
+                                onDelete = { confirmDelete = e }
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -780,7 +861,7 @@ private fun EventCard(
 ) {
     val today = now.toLocalDate()
     val due = e.isDueToday(today)
-    val accent = e.accentColor(Brand)
+    val accent = e.accentColor(MaterialTheme.colorScheme.primary)
     val mine = e.isMine(myId)
     val forMe = e.isForMe(myId)
     Card(

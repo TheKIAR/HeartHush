@@ -64,6 +64,7 @@ Windows app (same UI as the APK):
 ```bat
 build.bat
 ```
+
 Builds `HeartHush.jar` + `HeartHush.exe` (same UI as the APK).
 
 Android APK:

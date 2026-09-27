@@ -11,13 +11,16 @@ dependencies {
 
 compose.desktop {
     application {
-        mainClass = "com.hearthush.app.desktop.MainKt"
+        mainClass = "com.secount.app.desktop.MainKt"
         nativeDistributions {
             packageName = "Secount"
             packageVersion = "1.0.0"
             vendor = "Secount"
             description = "Secount (Secret + Count) - same UI on Windows and Android"
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Exe)
+            windows {
+                iconFile.set(project.file("secount.ico"))
+            }
         }
     }
 }

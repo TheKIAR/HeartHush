@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launch splash: Secount mark centered on brand violet. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/secount_bg" />
+    <item
+        android:width="120dp"
+        android:height="120dp"
+        android:gravity="center"
+        android:drawable="@drawable/secount_mark" />
+    <item
+        android:width="12dp"
+        android:height="12dp"
+        android:gravity="center_horizontal|bottom"
+        android:bottom="72dp"
+        android:drawable="@drawable/splash_dot" />
+</layer-list>

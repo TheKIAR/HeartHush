@@ -37,7 +37,7 @@ kotlin {
 }
 
 android {
-    namespace = "com.hearthush.app.shared"
+    namespace = "com.secount.app.shared"
     compileSdk = 36
     defaultConfig {
         minSdk = 26

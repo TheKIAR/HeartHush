@@ -3,10 +3,178 @@ package com.secount.app.logic
 import android.content.Context
 import android.media.AudioManager
 import android.media.ToneGenerator
+import androidx.compose.ui.graphics.asImageBitmap
 import java.security.MessageDigest
 
 object AppCtx {
     var app: Context? = null
+    /** Set by MainActivity: used to launch the gallery picker. */
+    var photoLauncher: ((String) -> Unit)? = null
+}
+
+private fun photosDir(): java.io.File {
+    val ctx = AppCtx.app ?: error("AppCtx not initialized")
+    val d = java.io.File(ctx.filesDir, "photos")
+    try {
+        if (!d.exists()) d.mkdirs()
+    } catch (ignored: Exception) {
+    }
+    return d
+}
+
+actual fun copyToClipboard(text: String) {
+    try {
+        val ctx = AppCtx.app ?: return
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("Secount", text))
+    } catch (ignored: Exception) {
+    }
+}
+
+actual fun getClipboardText(): String? {
+    return try {
+        val ctx = AppCtx.app ?: return null
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = cm.primaryClip ?: return null
+        if (clip.itemCount <= 0) return null
+        clip.getItemAt(0).coerceToText(ctx)?.toString()
+    } catch (e: Exception) {
+        null
+    }
+}
+
+actual fun pickPhotoFile(onResult: (String?) -> Unit) {
+    try {
+        val launch = AppCtx.photoLauncher
+        if (launch == null) {
+            onResult(null)
+            return
+        }
+        PhotoPick.pending = onResult
+        launch("image/*")
+    } catch (e: Exception) {
+        onResult(null)
+    }
+}
+
+object PhotoPick {
+    var pending: ((String?) -> Unit)? = null
+
+    fun onPicked(uri: android.net.Uri?): String? {
+        return try {
+            val ctx = AppCtx.app ?: return null
+            if (uri == null) return null
+            val name = "p" + System.currentTimeMillis() + ".jpg"
+            val out = java.io.File(photosDir(), name)
+            ctx.contentResolver.openInputStream(uri)?.use { ins ->
+                out.outputStream().use { outs -> ins.copyTo(outs) }
+            }
+            name
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun deliver(uri: android.net.Uri?) {
+        val cb = pending
+        pending = null
+        try {
+            cb?.invoke(onPicked(uri))
+        } catch (ignored: Exception) {
+            try {
+                cb?.invoke(null)
+            } catch (ignored2: Exception) {
+            }
+        }
+    }
+}
+
+actual fun loadPhotoBitmap(name: String): androidx.compose.ui.graphics.ImageBitmap? {
+    return try {
+        if (name.isBlank()) return null
+        val f = if (name.contains("/") || name.contains("\\")) java.io.File(name) else java.io.File(photosDir(), name)
+        if (!f.exists()) return null
+        val opts = android.graphics.BitmapFactory.Options()
+        opts.inSampleSize = 4
+        val bmp = android.graphics.BitmapFactory.decodeFile(f.absolutePath, opts) ?: return null
+        bmp.asImageBitmap()
+    } catch (e: Exception) {
+        null
+    }
+}
+
+actual fun deletePhotoFile(name: String) {
+    try {
+        if (name.isBlank() || name.contains("/") || name.contains("\\")) return
+        java.io.File(photosDir(), name).delete()
+    } catch (ignored: Exception) {
+    }
+}
+
+actual fun systemLanguage(): String {
+    return try {
+        val ctx = AppCtx.app ?: return "en"
+        (ctx.resources.configuration.locales.get(0)?.language ?: "en").lowercase()
+    } catch (e: Exception) {
+        "en"
+    }
+}
+
+actual fun openUrl(url: String) {
+    try {
+        val ctx = AppCtx.app ?: return
+        val i = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+        i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        ctx.startActivity(i)
+    } catch (ignored: Exception) {
+    }
+}
+
+actual fun widgetRefresh(eventsJson: String) {
+    try {
+        val ctx = AppCtx.app ?: return
+        val (title, sub) = nextUp(eventsJson)
+        ctx.getSharedPreferences("secount_widget", Context.MODE_PRIVATE).edit()
+            .putString("title", title).putString("sub", sub).apply()
+    } catch (ignored: Exception) {
+    }
+}
+
+private fun nextUp(json: String): Pair<String, String> {
+    return try {
+        val titles = Regex("\"title\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").findAll(json).map {
+            it.groupValues[1].replace("\\\"", "\"").replace("\\\\", "\\")
+        }.toList()
+        val dates = Regex("\"date\"\\s*:\\s*\"([0-9]{4}-[0-9]{2}-[0-9]{2})\"").findAll(json).map {
+            it.groupValues[1]
+        }.toList()
+        if (titles.isEmpty()) return "Secount" to "No countdowns yet"
+        val today = java.time.LocalDate.now()
+        var bestT = ""
+        var bestD = Long.MAX_VALUE
+        for (i in titles.indices) {
+            val ds = dates.getOrNull(i) ?: continue
+            val d = try {
+                java.time.LocalDate.parse(ds)
+            } catch (e: Exception) {
+                continue
+            }
+            if (d.isBefore(today)) continue
+            val days = java.time.temporal.ChronoUnit.DAYS.between(today, d)
+            if (days < bestD) {
+                bestD = days
+                bestT = titles[i]
+            }
+        }
+        if (bestT.isEmpty()) "Secount" to "All done — add one!"
+        else bestT to when (bestD) {
+            0L -> "Today! ♥"
+            1L -> "Tomorrow"
+            else -> "$bestD days left"
+        }
+    } catch (e: Exception) {
+        "Secount" to "Open the app"
+    }
 }
 
 actual fun platformDataDir(): String =

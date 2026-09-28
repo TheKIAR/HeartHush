@@ -84,7 +84,9 @@ class LogicTest {
         yearly.repeatYearly = true
         yearly.date = LocalDate.of(2000, LocalDate.now().month, LocalDate.now().dayOfMonth)
         assertTrue(yearly.isDueToday(LocalDate.now()))
-        assertTrue(yearly.countdownText(LocalDateTime.now()).contains("HERE"))
+        // Due today: either already here, or counting down to today's hour.
+        val yText = yearly.countdownText(LocalDateTime.now())
+        assertTrue(yText.contains("HERE") || yText.contains("TODAY"), yText)
         assertEquals("Today!", yearly.shortCountdown(LocalDate.now()))
     }
 

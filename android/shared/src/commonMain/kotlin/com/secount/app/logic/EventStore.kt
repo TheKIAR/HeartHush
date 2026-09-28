@@ -137,6 +137,7 @@ class EventStore(dir: String, name: String = "events.json") {
                 e.delivered = item.delivered
                 e.replyMessage = item.replyMessage
                 e.replyThread = item.replyThread
+                e.photoUri = item.photoUri
                 save()
                 return
             }

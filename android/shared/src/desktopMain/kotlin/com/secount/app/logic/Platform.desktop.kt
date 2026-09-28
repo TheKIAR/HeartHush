@@ -1,5 +1,6 @@
 package com.secount.app.logic
 
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import java.awt.Toolkit
 import java.security.MessageDigest
 import java.util.prefs.Preferences
@@ -258,6 +259,102 @@ actual fun notifySecret(title: String, text: String) {
         }
     } catch (ignored: Exception) {
     }
+}
+
+private fun photosDir(): java.io.File {
+    val d = java.io.File(platformDataDir(), "photos")
+    try {
+        if (!d.exists()) d.mkdirs()
+    } catch (ignored: Exception) {
+    }
+    return d
+}
+
+actual fun copyToClipboard(text: String) {
+    try {
+        val sel = java.awt.datatransfer.StringSelection(text)
+        java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(sel, sel)
+    } catch (ignored: Exception) {
+    }
+}
+
+actual fun getClipboardText(): String? {
+    return try {
+        val cb = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+        val data = cb.getData(java.awt.datatransfer.DataFlavor.stringFlavor)
+        data?.toString()
+    } catch (e: Exception) {
+        null
+    }
+}
+
+actual fun pickPhotoFile(onResult: (String?) -> Unit) {
+    Thread({
+        try {
+            val dlg = java.awt.FileDialog(null as java.awt.Frame?, "Choose a photo", java.awt.FileDialog.LOAD)
+            dlg.isVisible = true
+            val dir = dlg.directory
+            val file = dlg.file
+            dlg.dispose()
+            if (dir == null || file == null) {
+                onResult(null)
+                return@Thread
+            }
+            val src = java.io.File(dir, file)
+            val ext = src.extension.ifEmpty { "jpg" }.lowercase().take(4)
+            val name = "p" + System.currentTimeMillis() + "." + ext
+            val out = java.io.File(photosDir(), name)
+            src.copyTo(out, overwrite = true)
+            onResult(name)
+        } catch (e: Exception) {
+            try {
+                onResult(null)
+            } catch (ignored: Exception) {
+            }
+        }
+    }, "photo-pick").apply { isDaemon = true }.start()
+}
+
+actual fun loadPhotoBitmap(name: String): androidx.compose.ui.graphics.ImageBitmap? {
+    return try {
+        if (name.isBlank()) return null
+        val f = if (name.contains("/") || name.contains("\\") || name.contains(":")) java.io.File(name)
+        else java.io.File(photosDir(), name)
+        if (!f.exists()) return null
+        val img = javax.imageio.ImageIO.read(f) ?: return null
+        img.toComposeImageBitmap()
+    } catch (e: Exception) {
+        null
+    }
+}
+
+actual fun deletePhotoFile(name: String) {
+    try {
+        if (name.isBlank() || name.contains("/") || name.contains("\\") || name.contains(":")) return
+        java.io.File(photosDir(), name).delete()
+    } catch (ignored: Exception) {
+    }
+}
+
+actual fun systemLanguage(): String {
+    return try {
+        (java.util.Locale.getDefault().language ?: "en").lowercase()
+    } catch (e: Exception) {
+        "en"
+    }
+}
+
+actual fun openUrl(url: String) {
+    try {
+        if (java.awt.Desktop.isDesktopSupported()) {
+            java.awt.Desktop.getDesktop().browse(java.net.URI(url))
+        }
+    } catch (ignored: Exception) {
+    }
+}
+
+actual fun widgetRefresh(eventsJson: String) {
+    // No home-widget system on desktop; the window title covers glanceability.
 }
 
 private object SoundLock

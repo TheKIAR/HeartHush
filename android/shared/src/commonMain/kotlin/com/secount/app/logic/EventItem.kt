@@ -33,6 +33,8 @@ class EventItem {
     var remind7d: Boolean = false
     /** Full reply conversation, lines of "epochSec|who|text". replyMessage keeps latest for compat. */
     var replyThread: String = ""
+    /** Attached photo filename (app photos dir). Empty = none. */
+    var photoUri: String = ""
     var createdAt: LocalDateTime = LocalDateTime.now()
 
     /** Emoji / symbol shown on the card. */
@@ -279,6 +281,7 @@ class EventItem {
             ",\"delivered\":" + delivered +
             ",\"replyMessage\":" + q(replyMessage) +
             ",\"replyThread\":" + q(replyThread) +
+            ",\"photoUri\":" + q(photoUri) +
             ",\"createdAt\":" + q(createdAt.toString()) + "}"
     }
 
@@ -350,6 +353,8 @@ class EventItem {
                         "replyMessage" -> e.replyMessage = JsonUtil.unquote(`val`)
                         "reply" -> e.replyMessage = JsonUtil.unquote(`val`)
                         "replyThread" -> e.replyThread = JsonUtil.unquote(`val`)
+                        "photoUri" -> e.photoUri = JsonUtil.unquote(`val`)
+                        "photo" -> e.photoUri = JsonUtil.unquote(`val`)
                         "createdAt" -> e.createdAt = LocalDateTime.parse(JsonUtil.unquote(`val`))
                         else -> {}
                     }

@@ -26,8 +26,11 @@ private fun lightOf(primary: Color, bg: Color, surface: Color, secondary: Color 
         secondary = secondary,
         secondaryContainer = surface,
         surface = surface,
+        onSurface = Color.Black,
         surfaceVariant = surface,
-        background = bg
+        onSurfaceVariant = Color.Black,
+        background = bg,
+        onBackground = Color.Black
     )
 
 private fun darkOf(primary: Color, bg: Color, surface: Color, secondary: Color = Gold) =
@@ -37,8 +40,11 @@ private fun darkOf(primary: Color, bg: Color, surface: Color, secondary: Color =
         secondary = secondary,
         secondaryContainer = surface,
         surface = surface,
+        onSurface = Color.White,
         surfaceVariant = surface,
-        background = bg
+        onSurfaceVariant = Color.White,
+        background = bg,
+        onBackground = Color.White
     )
 
 val THEMES = listOf(

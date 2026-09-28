@@ -35,6 +35,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -595,36 +596,42 @@ private fun PinGate(pin: PinLock, themeName: String, darkMode: String, onUnlock:
     var entry by remember { mutableStateOf("") }
     var denied by remember { mutableStateOf(false) }
     SecountTheme(themeName, darkMode) {
-        Column(
-            Modifier.fillMaxSize().padding(32.dp)
-                .background(MaterialTheme.colorScheme.background),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.onBackground
         ) {
-            Text("♥", fontSize = 48.sp)
-            Spacer(Modifier.height(12.dp))
-            Text("Secount", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                if (pin.isDefaultPin()) "First run PIN is 1234 — change it in PIN settings."
-                else "Enter your app PIN.",
-                fontSize = 13.sp
-            )
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(
-                entry, { entry = it.filter { c -> c.isDigit() }.take(8); denied = false },
-                placeholder = { Text("PIN") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation()
-            )
-            if (denied) Text("Wrong PIN.", color = MaterialTheme.colorScheme.error)
-            Spacer(Modifier.height(12.dp))
-            Button(onClick = {
-                if (pin.unlock(entry)) {
-                    entry = ""
-                    onUnlock()
-                } else denied = true
-            }) { Text("UNLOCK") }
+            Column(
+                Modifier.fillMaxSize().padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("♥", fontSize = 48.sp, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(12.dp))
+                Text("Secount", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    if (pin.isDefaultPin()) "First run PIN is 1234 — change it in PIN settings."
+                    else "Enter your app PIN.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
+                )
+                Spacer(Modifier.height(16.dp))
+                OutlinedTextField(
+                    entry, { entry = it.filter { c -> c.isDigit() }.take(8); denied = false },
+                    placeholder = { Text("PIN") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                if (denied) Text("Wrong PIN.", color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(12.dp))
+                Button(onClick = {
+                    if (pin.unlock(entry)) {
+                        entry = ""
+                        onUnlock()
+                    } else denied = true
+                }) { Text("UNLOCK") }
+            }
         }
     }
 }

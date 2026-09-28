@@ -9,19 +9,57 @@ class PinLock {
 
     fun isUnlocked(): Boolean = unlocked
 
+    fun fails(): Int = prefsGet(FAIL_KEY)?.toIntOrNull() ?: 0
+
+    fun lockoutUntil(): Long = prefsGet(LOCKOUT_KEY)?.toLongOrNull() ?: 0L
+
+    fun lockoutRemainingSec(): Long {
+        val rem = lockoutUntil() - nowSec()
+        return if (rem > 0) rem else 0L
+    }
+
+    fun canAttempt(): Boolean = lockoutRemainingSec() <= 0
+
+    fun attemptsLeft(): Int {
+        val f = fails()
+        if (f < MAX_FREE) return MAX_FREE - f
+        return 0
+    }
+
+    private fun recordFailure() {
+        val f = fails() + 1
+        prefsPut(FAIL_KEY, f.toString())
+        if (f >= MAX_FREE) {
+            val steps = (f - MAX_FREE) / 3
+            var secs = 30L
+            repeat(steps.coerceAtMost(4)) { secs *= 2 }
+            if (secs > 600) secs = 600
+            prefsPut(LOCKOUT_KEY, (nowSec() + secs).toString())
+        }
+    }
+
+    private fun clearFailures() {
+        prefsPut(FAIL_KEY, "0")
+        prefsPut(LOCKOUT_KEY, "0")
+    }
+
     fun unlock(pin: String?): Boolean {
+        if (!canAttempt()) return false
         val want = prefsGet(HASH_KEY) ?: hash(DEFAULT_PIN)
         val p = pin ?: ""
         if (constantEquals(hash(p), want)) {
             unlocked = true
+            clearFailures()
             return true
         }
         // Pre-rename hash: accept once, then upgrade to the new salt.
         if (isLegacyMatch(p, want)) {
             prefsPut(HASH_KEY, hash(p))
             unlocked = true
+            clearFailures()
             return true
         }
+        recordFailure()
         return false
     }
 
@@ -29,11 +67,21 @@ class PinLock {
         unlocked = false
     }
 
+    /** Called when the OS sends the app to Home/background: require PIN on return, no timer otherwise. */
+    fun lockOnHome() {
+        unlocked = false
+    }
+
     fun changePin(current: String?, next: String?): Boolean {
+        if (!canAttempt()) return false
         val want = prefsGet(HASH_KEY) ?: hash(DEFAULT_PIN)
-        if (!constantEquals(hash(current ?: ""), want) && !isLegacyMatch(current ?: "", want)) return false
+        if (!constantEquals(hash(current ?: ""), want) && !isLegacyMatch(current ?: "", want)) {
+            recordFailure()
+            return false
+        }
         if (next == null || next.length < 4) return false
         prefsPut(HASH_KEY, hash(next))
+        clearFailures()
         return true
     }
 
@@ -44,6 +92,9 @@ class PinLock {
 
     companion object {
         private const val HASH_KEY = "app_pin_hash"
+        private const val FAIL_KEY = "app_pin_fails"
+        private const val LOCKOUT_KEY = "app_pin_lockout_until"
+        private const val MAX_FREE = 5
         const val DEFAULT_PIN = "1234"
 
         fun hash(pin: String): String = salted(pin, "secount-pin|")

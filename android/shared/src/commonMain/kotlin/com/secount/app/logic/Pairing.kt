@@ -25,6 +25,102 @@ object PairNet {
     }
 }
 
+/** Lightweight shared-secret obfuscation so partner countdowns/replies are not
+ * readable to anyone casually watching the public relay topic. Key is derived
+ * from both pairing codes (known to both devices only after mutual entry).
+ * Not a substitute for full audited E2E, but far better than plaintext. */
+object PairCrypto {
+    fun deriveKey(codeA: String, codeB: String): ByteArray {
+        val a = codeA.trim().lowercase()
+        val b = codeB.trim().lowercase()
+        val (x, y) = if (a < b) a to b else b to a
+        return sha256("secount-pair|$x|$y".encodeToByteArray())
+    }
+
+    fun encryptToHex(key: ByteArray, plain: String): String {
+        val nonce = ByteArray(8)
+        var v = nowSec() xor Random.nextLong()
+        for (i in nonce.indices) {
+            v = v * 6364136223846793005L + 1442695040888963407L
+            nonce[i] = ((v ushr 33) and 0xFF).toByte()
+        }
+        val src = plain.encodeToByteArray()
+        val out = ByteArray(src.size)
+        var counter = 0
+        var pos = 0
+        while (pos < src.size) {
+            val ctr = ByteArray(4)
+            ctr[0] = ((counter ushr 24) and 0xFF).toByte()
+            ctr[1] = ((counter ushr 16) and 0xFF).toByte()
+            ctr[2] = ((counter ushr 8) and 0xFF).toByte()
+            ctr[3] = (counter and 0xFF).toByte()
+            val stream = sha256(key + nonce + ctr)
+            for (b in stream) {
+                if (pos >= src.size) break
+                out[pos] = (src[pos].toInt() xor b.toInt()).toByte()
+                pos++
+            }
+            counter++
+        }
+        return "ENC1." + hex(nonce) + "." + hex(out)
+    }
+
+    fun decryptHex(key: ByteArray, s: String): String? {
+        try {
+            if (!s.startsWith("ENC1.")) return null
+            val rest = s.removePrefix("ENC1.")
+            val dot = rest.indexOf('.')
+            if (dot < 0) return null
+            val nonce = unhex(rest.substring(0, dot)) ?: return null
+            val cipher = unhex(rest.substring(dot + 1)) ?: return null
+            val out = ByteArray(cipher.size)
+            var counter = 0
+            var pos = 0
+            while (pos < cipher.size) {
+                val ctr = ByteArray(4)
+                ctr[0] = ((counter ushr 24) and 0xFF).toByte()
+                ctr[1] = ((counter ushr 16) and 0xFF).toByte()
+                ctr[2] = ((counter ushr 8) and 0xFF).toByte()
+                ctr[3] = (counter and 0xFF).toByte()
+                val stream = sha256(key + nonce + ctr)
+                for (b in stream) {
+                    if (pos >= cipher.size) break
+                    out[pos] = (cipher[pos].toInt() xor b.toInt()).toByte()
+                    pos++
+                }
+                counter++
+                if (counter > 100000) return null
+            }
+            return out.decodeToString()
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
+    private fun hex(b: ByteArray): String {
+        val sb = StringBuilder(b.size * 2)
+        for (x in b) {
+            val v = x.toInt() and 0xFF
+            if (v < 16) sb.append('0')
+            sb.append(v.toString(16))
+        }
+        return sb.toString()
+    }
+
+    private fun unhex(s: String): ByteArray? {
+        try {
+            if (s.length % 2 != 0 || s.length > 200000) return null
+            val out = ByteArray(s.length / 2)
+            for (i in out.indices) {
+                out[i] = s.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+            }
+            return out
+        } catch (e: Exception) {
+            return null
+        }
+    }
+}
+
 data class IncomingReq(val code: String, val accountId: String, val at: Long)
 
 data class SyncResult(
@@ -320,6 +416,37 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
         }
     }
 
+    private fun pairKey(): ByteArray? {
+        return try {
+            if (!pair.isPaired()) null
+            else PairCrypto.deriveKey(pair.myCode, pair.partnerCode())
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun envelopeMaybeEnc(type: String, data: String): String {
+        return try {
+            if (type == "countdown" || type == "reply" || type == "delivered") {
+                val k = pairKey()
+                if (k != null) return envelope(type, PairCrypto.encryptToHex(k, data))
+            }
+            envelope(type, data)
+        } catch (e: Exception) {
+            envelope(type, data)
+        }
+    }
+
+    private fun maybeDecrypt(dataRaw: String): String {
+        return try {
+            if (!dataRaw.startsWith("ENC1.")) return dataRaw
+            val k = pairKey() ?: return dataRaw
+            PairCrypto.decryptHex(k, dataRaw) ?: return ""
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     /** Retry publishing partner countdowns that failed to send while offline. */
     private fun sendUnsent() {
         if (!pair.isPaired()) return
@@ -328,7 +455,7 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
             if (!e.forPartner || !e.isMine(pair.accountId)) continue
             if (prefsGet(pair.k("sent_" + e.id)) != null) continue
             try {
-                httpPost(PairNet.BASE + "/" + topic, envelope("countdown", e.toJson()), 12000)
+                httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("countdown", e.toJson()), 12000)
                 prefsPut(pair.k("sent_" + e.id), "1")
             } catch (ignored: Exception) {
             }
@@ -405,7 +532,7 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
     suspend fun sendCountdown(item: EventItem): Boolean = withContext(Dispatchers.IO) {
         try {
             val topic = pair.pairTopic() ?: return@withContext false
-            httpPost(PairNet.BASE + "/" + topic, envelope("countdown", item.toJson()), 12000)
+            httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("countdown", item.toJson()), 12000)
             markSent(item.id)
             true
         } catch (e: Exception) {
@@ -416,7 +543,7 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
     suspend fun sendDelivered(itemId: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val topic = pair.pairTopic() ?: return@withContext false
-            httpPost(PairNet.BASE + "/" + topic, envelope("delivered", "{\"id\":" + q(itemId) + "}"), 12000)
+            httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("delivered", "{\"id\":" + q(itemId) + "}"), 12000)
             true
         } catch (e: Exception) {
             false
@@ -428,7 +555,7 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
         try {
             val topic = pair.pairTopic() ?: return@withContext false
             val data = "{\"id\":" + q(itemId) + ",\"reply\":" + q(reply) + "}"
-            httpPost(PairNet.BASE + "/" + topic, envelope("reply", data), 12000)
+            httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("reply", data), 12000)
             true
         } catch (e: Exception) {
             false
@@ -510,7 +637,11 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
         val type = env["type"] ?: return
         val from = env["from"] ?: ""
         if (from.isEmpty() || from == pair.accountId) return
-        val dataRaw = extractRaw(raw, "data") ?: "{}"
+        var dataRaw = extractRaw(raw, "data") ?: "{}"
+        if (dataRaw.startsWith("ENC1.")) {
+            dataRaw = maybeDecrypt(dataRaw)
+            if (dataRaw.isEmpty()) return
+        }
         when (type) {
             "pair-request" -> {
                 val d = PairStore.flatMap(dataRaw)
@@ -566,13 +697,17 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
                     val d = PairStore.flatMap(dataRaw)
                     val id = d["id"] ?: return
                     val reply = d["reply"] ?: ""
+                    if (reply.isBlank()) return
                     val item = store.byId(id) ?: return
                     // Only shared partner items carry a reply thread.
                     if (!item.forPartner && !item.isForMe(pair.accountId)) {
                         if (item.senderId != pair.accountId && item.senderId != from) return
                     }
-                    item.replyMessage = reply
-                    store.addOrUpdate(item)
+                    val last = item.threadEntries().lastOrNull()?.third ?: ""
+                    if (last != reply.trim()) {
+                        item.appendReply("partner", reply, nowSec())
+                        store.addOrUpdate(item)
+                    }
                     res.replyReceived = true
                     res.changed = true
                 } catch (ignored: Exception) {

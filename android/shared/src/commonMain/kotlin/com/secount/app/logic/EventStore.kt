@@ -117,12 +117,18 @@ class EventStore(dir: String, name: String = "events.json") {
             if (e.id == item.id) {
                 e.title = item.title
                 e.date = item.date
+                e.hour = item.hour
+                e.minute = item.minute
                 e.message = item.message
                 e.secretMessage = item.secretMessage
                 e.secretEnabled = item.secretEnabled
                 e.featured = item.featured
                 e.repeatYearly = item.repeatYearly
+                e.repeatMode = item.repeatMode.ifEmpty { if (item.repeatYearly) "yearly" else "once" }
                 e.soundEnabled = item.soundEnabled
+                e.soundName = item.soundName
+                e.remind1d = item.remind1d
+                e.remind7d = item.remind7d
                 e.icon = item.icon
                 e.accentHex = item.accentHex
                 e.category = item.category
@@ -130,12 +136,49 @@ class EventStore(dir: String, name: String = "events.json") {
                 e.forPartner = item.forPartner
                 e.delivered = item.delivered
                 e.replyMessage = item.replyMessage
+                e.replyThread = item.replyThread
                 save()
                 return
             }
         }
+        if (item.repeatMode.isEmpty()) item.repeatMode = if (item.repeatYearly) "yearly" else "once"
         backingItems.add(item)
         save()
+    }
+
+    fun exportJson(): String {
+        val sb = StringBuilder("[\n")
+        val list = synchronized(this) { ArrayList(backingItems) }
+        for (i in list.indices) {
+            sb.append("  ").append(list[i].toJson())
+            if (i + 1 < list.size) sb.append(",")
+            sb.append("\n")
+        }
+        sb.append("]\n")
+        return sb.toString()
+    }
+
+    @Synchronized
+    fun importJson(json: String): Int {
+        var count = 0
+        try {
+            val t = json.trim()
+            if (!t.startsWith("[") || !t.endsWith("]")) return 0
+            val inside = t.substring(1, t.length - 1)
+            for (part in JsonUtil.splitTopLevel(inside)) {
+                val p = part.trim()
+                if (!p.startsWith("{")) continue
+                try {
+                    val e = EventItem.fromJson(p)
+                    if (e.title.isBlank()) continue
+                    addOrUpdate(e)
+                    count++
+                } catch (ignored: Exception) {
+                }
+            }
+        } catch (ignored: Exception) {
+        }
+        return count
     }
 
     @Synchronized

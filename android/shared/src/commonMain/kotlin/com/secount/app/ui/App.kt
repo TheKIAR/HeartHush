@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -26,6 +28,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +56,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,6 +69,7 @@ import com.secount.app.logic.SyncEngine
 import com.secount.app.logic.alarmBeep
 import com.secount.app.logic.alarmStop
 import com.secount.app.logic.notifySecret
+import com.secount.app.logic.nowSec
 import com.secount.app.logic.platformDataDir
 import com.secount.app.logic.prefsGet
 import com.secount.app.logic.prefsPut
@@ -75,8 +81,13 @@ import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val FILTERS = listOf("All", "Today", "Next 7 days", "Featured", "With secret")
-private val SORTS = listOf("Happening next", "Name A–Z", "Biggest countdown")
+private const val NEED_LOCK_KEY = "secount_need_lock"
+private const val MUTED_KEY = "secount_muted"
+
+private val FILTERS = listOf("All", "Today", "Next 7 days", "Featured", "With secret", "Past", "To partner")
+private val SORTS = listOf("Happening next", "Name A–Z", "Biggest countdown", "Newest first")
+private val REPEATS = listOf("One-time", "Yearly", "Monthly", "Weekly")
+private val SOUNDS = listOf("Chime", "Soft", "Silent")
 private val ACCENTS = listOf(
     "Auto" to "",
     "Pink" to "#FF5D97",
@@ -97,28 +108,38 @@ fun App() {
     val engine = remember { SyncEngine(store, pair) }
     val scope = rememberCoroutineScope()
 
-    var tick by remember { mutableStateOf(0) }
+    var secTick by remember { mutableStateOf(0) }
+    var storeVer by remember { mutableStateOf(0) }
     var unlocked by remember { mutableStateOf(pin.isUnlocked()) }
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(FILTERS[0]) }
     var sort by remember { mutableStateOf(SORTS[0]) }
+    var viewMode by remember { mutableStateOf("List") }
+    var calMonth by remember { mutableStateOf(LocalDate.now().withDayOfMonth(1)) }
+    var calDay by remember { mutableStateOf<LocalDate?>(null) }
     var editing by remember { mutableStateOf<EventItem?>(null) }
     var editIsNew by remember { mutableStateOf(false) }
     var showConnect by remember { mutableStateOf(false) }
     var showPin by remember { mutableStateOf(false) }
+    var showExport by remember { mutableStateOf(false) }
+    var showImport by remember { mutableStateOf(false) }
     var secretOf by remember { mutableStateOf<EventItem?>(null) }
     var alarmOf by remember { mutableStateOf<EventItem?>(null) }
     var confirmDelete by remember { mutableStateOf<EventItem?>(null) }
+    var undoItem by remember { mutableStateOf<EventItem?>(null) }
     var severPrompt by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
     var syncing by remember { mutableStateOf(false) }
     var themeName by remember { mutableStateOf(prefsGet("secount_theme") ?: THEMES[0].name) }
     var darkMode by remember { mutableStateOf(prefsGet("secount_darkmode") ?: "System") }
+    var muted by remember { mutableStateOf(prefsGet(MUTED_KEY) == "1") }
     val shownSecrets = remember { mutableSetOf<String>() }
 
     fun refresh() {
-        tick++
+        storeVer++
     }
+
+    fun isMuted(): Boolean = muted
 
     fun doSync() {
         if (syncing) return
@@ -132,12 +153,14 @@ fun App() {
                 if (res.severed) notice = "Connection severed by mutual agreement."
                 if (res.replyReceived) {
                     notice = "Your partner replied to a secret message."
-                    try {
-                        notifySecret(
-                            "Secount reply",
-                            "Your partner replied to a secret message. Open it."
-                        )
-                    } catch (ignored: Exception) {
+                    if (!isMuted()) {
+                        try {
+                            notifySecret(
+                                "Secount reply",
+                                "Your partner replied to a secret message. Open it."
+                            )
+                        } catch (ignored: Exception) {
+                        }
                     }
                 }
                 if (res.offline) notice = "Offline — will retry automatically."
@@ -148,11 +171,22 @@ fun App() {
         }
     }
 
-    // per-second ticker for live countdowns
+    // 1s ticker drives only the live timer text; list ordering uses storeVer
+    // so the whole list is not resorted/recomposed every second.
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000)
-            tick++
+            secTick++
+            // Lock only when the OS sent us Home/background (native sets the
+            // flag). No timer auto-lock while you stay in the app.
+            try {
+                if (prefsGet(NEED_LOCK_KEY) == "1") {
+                    prefsPut(NEED_LOCK_KEY, "")
+                    pin.lockOnHome()
+                    unlocked = false
+                }
+            } catch (ignored: Exception) {
+            }
         }
     }
     // online sync every 25s when linked, every 8s while waiting to pair
@@ -170,28 +204,39 @@ fun App() {
     }
 
     val today = LocalDate.now()
-    val now = LocalDateTime.now()
     @Suppress("UNUSED_EXPRESSION")
-    tick
+    secTick
+    val now = LocalDateTime.now()
     val myId = pair.accountId
-    val shown = remember(tick, query, filter, sort, store) {
-        var list = store.sortedByNext(today).filter { e ->
+    @Suppress("UNUSED_EXPRESSION")
+    storeVer
+    val shown = remember(storeVer, query, filter, sort) {
+        val t = LocalDate.now()
+        var list = store.sortedByNext(t).filter { e ->
             // Partner secrets stay hidden on the receiver until D-day: the
             // receiver cannot see, open or edit them before zero.
-            if (e.isForMe(myId) && !e.isDueToday(today)) return@filter false
+            if (e.isForMe(myId) && !e.isDueToday(t)) return@filter false
+            if (calDay != null && viewMode == "Calendar") {
+                val match = if (e.effectiveRepeat() == "once") e.date == calDay
+                else e.nextOccurrence(t) == calDay || e.isDueToday(calDay!!)
+                if (!match) return@filter false
+            }
             (query.isBlank() || (e.title + " " + e.message + " " + e.displayCategory())
                 .contains(query.trim(), ignoreCase = true)) &&
                 when (filter) {
-                    "Today" -> e.isDueToday(today)
-                    "Next 7 days" -> !e.isPast(today) && e.daysUntil(today) <= 7
+                    "Today" -> e.isDueToday(t)
+                    "Next 7 days" -> !e.isPast(t) && e.daysUntil(t) <= 7
                     "Featured" -> e.featured
                     "With secret" -> e.hasSecret()
+                    "Past" -> e.isPast(t)
+                    "To partner" -> e.forPartner && e.isMine(myId)
                     else -> true
                 }
         }
         list = when (sort) {
             "Name A–Z" -> list.sortedBy { it.title.lowercase() }
-            "Biggest countdown" -> list.sortedByDescending { it.daysUntil(today) }
+            "Biggest countdown" -> list.sortedByDescending { it.daysUntil(t) }
+            "Newest first" -> list.sortedByDescending { it.createdAt }
             else -> list
         }
         list
@@ -207,27 +252,60 @@ fun App() {
     // due-today reveals: personal items and partner-sent items open here;
     // items I sent are revealed on the partner's device instead.
     // Partner items also fire the "You Have a Secret Message" notification.
-    LaunchedEffect(tick) {
+    // Plus 1-day / 7-day pre-reminders (once per day per event).
+    LaunchedEffect(secTick) {
+        if (secTick % 5 != 0) return@LaunchedEffect
+        val t = LocalDate.now()
         for (e in store.items()) {
-            if (!e.isDueToday(today) || shownSecrets.contains(e.id)) continue
+            if (e.isForMe(myId) && !e.isDueToday(t)) continue
             val mine = e.isMine(myId)
             val forMe = e.isForMe(myId)
-            if (!mine && !forMe) continue
-            if (mine && e.forPartner) continue
-            shownSecrets.add(e.id)
-            if (e.soundEnabled) alarmBeep()
-            if (forMe) {
-                try {
-                    notifySecret(
-                        "You Have a Secret Message Open it",
-                        "Open Secount to read your new secret message."
-                    )
-                } catch (ignored: Exception) {
+            if (e.isDueToday(t) && !shownSecrets.contains(e.id)) {
+                if (!mine && !forMe) continue
+                if (mine && e.forPartner) continue
+                shownSecrets.add(e.id)
+                if (!isMuted() && e.soundEnabled && e.soundName != "Silent") {
+                    try {
+                        alarmBeep()
+                    } catch (ignored: Exception) {
+                    }
                 }
-            }
-            if (e.hasSecret() || forMe) secretOf = e else alarmOf = e
-            if (forMe) {
-                scope.launch { engine.sendDelivered(e.id) }
+                if (forMe && !isMuted()) {
+                    try {
+                        notifySecret(
+                            "You Have a Secret Message Open it",
+                            "Open Secount to read your new secret message."
+                        )
+                    } catch (ignored: Exception) {
+                    }
+                }
+                if (e.hasSecret() || forMe) secretOf = e else alarmOf = e
+                if (forMe) {
+                    scope.launch { engine.sendDelivered(e.id) }
+                }
+            } else if (!e.isPast(t) && !isMuted()) {
+                val d = e.daysUntil(t)
+                val keyDay = t.toString()
+                if (d == 1L && e.remind1d) {
+                    val k = "reminded_${e.id}_1_$keyDay"
+                    if (prefsGet(k) == null) {
+                        prefsPut(k, "1")
+                        try {
+                            notifySecret("Tomorrow: ${e.title}", "${e.shortCountdown(t)} • ${e.timeLabel()}")
+                        } catch (ignored: Exception) {
+                        }
+                    }
+                }
+                if (d == 7L && e.remind7d) {
+                    val k = "reminded_${e.id}_7_$keyDay"
+                    if (prefsGet(k) == null) {
+                        prefsPut(k, "1")
+                        try {
+                            notifySecret("In a week: ${e.title}", "${e.shortCountdown(t)} • ${e.dateLabel()}")
+                        } catch (ignored: Exception) {
+                        }
+                    }
+                }
             }
         }
     }
@@ -301,6 +379,37 @@ fun App() {
                             selected = false,
                             onClick = { showPin = true; closeDrawer() }
                         )
+                        NavigationDrawerItem(
+                            label = { Text(if (muted) "🔇 Unmute sounds" else "🔔 Mute all sounds") },
+                            selected = false,
+                            onClick = {
+                                muted = !muted
+                                try {
+                                    prefsPut(MUTED_KEY, if (muted) "1" else "")
+                                } catch (ignored: Exception) {
+                                }
+                                if (muted) {
+                                    try {
+                                        alarmStop()
+                                    } catch (ignored: Exception) {
+                                    }
+                                }
+                            }
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider()
+                        Spacer(Modifier.height(8.dp))
+                        Text("BACKUP", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        NavigationDrawerItem(
+                            label = { Text("Export backup") },
+                            selected = false,
+                            onClick = { showExport = true; closeDrawer() }
+                        )
+                        NavigationDrawerItem(
+                            label = { Text("Import backup") },
+                            selected = false,
+                            onClick = { showImport = true; closeDrawer() }
+                        )
                         Spacer(Modifier.height(8.dp))
                         HorizontalDivider()
                         Spacer(Modifier.height(8.dp))
@@ -365,6 +474,19 @@ fun App() {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     fontSize = 12.sp
                 )
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { viewMode = "List"; calDay = null },
+                        modifier = Modifier.weight(1f)
+                    ) { Text(if (viewMode == "List") "● List" else "○ List") }
+                    OutlinedButton(
+                        onClick = { viewMode = "Calendar" },
+                        modifier = Modifier.weight(1f)
+                    ) { Text(if (viewMode == "Calendar") "● Calendar" else "○ Calendar") }
+                }
                 OutlinedTextField(
                     query, { query = it },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -378,38 +500,111 @@ fun App() {
                     DropDown("Filter", FILTERS, filter, { filter = it }, Modifier.weight(1f))
                     DropDown("Sort", SORTS, sort, { sort = it }, Modifier.weight(1f))
                 }
-                LazyColumn(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                    items(shown, key = { it.id }) { e ->
-                        if (e.isForMe(myId)) {
-                            // Receiver view: sealed card only, no details, no edit.
-                            // The message + reply open through OPEN MESSAGE.
-                            SecretInboxCard(
-                                e,
-                                onOpen = { secretOf = e }
-                            )
-                        } else {
-                            EventCard(
-                                e, now, myId,
-                                onEdit = { editing = e.copyFromJson(); editIsNew = false },
-                                onDuplicate = {
-                                    val copy = e.copyFromJson()
-                                    copy.id = UUID.randomUUID().toString().replace("-", "")
-                                    copy.title = e.title + " (copy)"
-                                    copy.createdAt = LocalDateTime.now()
-                                    copy.senderId = myId
-                                    store.addOrUpdate(copy)
-                                    if (copy.forPartner) scope.launch { engine.sendCountdown(copy) }
-                                    refresh()
-                                },
-                                onRing = {
-                                    if (e.soundEnabled) alarmBeep()
-                                    if (e.hasSecret()) secretOf = e else alarmOf = e
-                                },
-                                onDelete = { confirmDelete = e }
-                            )
+                if (viewMode == "Calendar") {
+                    CalendarView(
+                        month = calMonth,
+                        today = today,
+                        store = store,
+                        myId = myId,
+                        selected = calDay,
+                        onMonth = { calMonth = it },
+                        onDay = { calDay = it; refresh() }
+                    )
+                }
+                undoItem?.let { u ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Deleted '${u.title}'", fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        TextButton(onClick = {
+                            store.addOrUpdate(u)
+                            undoItem = null
+                            refresh()
+                        }) { Text("UNDO") }
+                        TextButton(onClick = { undoItem = null }) { Text("DISMISS") }
+                    }
+                }
+                if (shown.isEmpty()) {
+                    Column(
+                        Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text("♥", fontSize = 44.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            if (query.isNotBlank() || filter != "All") "Nothing matches — try another search or filter."
+                            else "No countdowns yet — create your first one!",
+                            fontSize = 14.sp
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = {
+                            val item = EventItem()
+                            item.date = LocalDate.now().plusDays(7)
+                            item.senderId = myId
+                            editing = item
+                            editIsNew = true
+                        }) { Text("+ NEW COUNTDOWN") }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(onClick = {
+                            sample(store, myId, "Birthday 🎂", 14, "Birthday", "🎂", "#FFB020", "Cake, friends and music!", true)
+                            sample(store, myId, "Final Exams 🎓", 30, "Exam", "🎓", "#22C4A8", "One chapter a day keeps stress away.", true)
+                            sample(store, myId, "Android App Launch 🚀", 60, "App Release", "🚀", "#7C6CFF", "Release v2.0 to the Play Store.", false)
+                            sample(store, myId, "Beach Trip ✈", 90, "Trip", "✈", "#38BDF8", "Sunscreen, playlists, passports.", false)
+                            sample(store, myId, "Wedding Day 💖", 120, "Wedding", "💖", "#F472B6", "The big day!", true)
+                            refresh()
+                        }) { Text("ADD SAMPLES") }
+                    }
+                } else {
+                    LazyColumn(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                        items(shown, key = { it.id }) { e ->
+                            if (e.isForMe(myId)) {
+                                // Receiver view: sealed card only, no details, no edit.
+                                // The message + reply open through OPEN MESSAGE.
+                                SecretInboxCard(
+                                    e,
+                                    onOpen = { secretOf = e }
+                                )
+                            } else {
+                                EventCard(
+                                    e, now, myId,
+                                    onEdit = { editing = e.copyFromJson(); editIsNew = false },
+                                    onDuplicate = {
+                                        val copy = e.copyFromJson()
+                                        copy.id = UUID.randomUUID().toString().replace("-", "")
+                                        copy.title = e.title + " (copy)"
+                                        copy.createdAt = LocalDateTime.now()
+                                        copy.senderId = myId
+                                        store.addOrUpdate(copy)
+                                        if (copy.forPartner) scope.launch { engine.sendCountdown(copy) }
+                                        refresh()
+                                    },
+                                    onRing = {
+                                        if (!isMuted() && e.soundEnabled && e.soundName != "Silent") {
+                                            try {
+                                                alarmBeep()
+                                            } catch (ignored: Exception) {
+                                            }
+                                        }
+                                        if (e.hasSecret()) secretOf = e else alarmOf = e
+                                    },
+                                    onDelete = { confirmDelete = e }
+                                )
+                            }
                         }
                     }
                 }
+                FloatingActionButton(
+                    onClick = {
+                        val item = EventItem()
+                        item.date = LocalDate.now().plusDays(7)
+                        item.senderId = myId
+                        editing = item
+                        editIsNew = true
+                    },
+                    modifier = Modifier.align(Alignment.End).padding(16.dp)
+                ) { Text("+", fontSize = 24.sp, fontWeight = FontWeight.Bold) }
             }
         }
 
@@ -482,17 +677,58 @@ fun App() {
                 }
             )
         }
+        if (showExport) {
+            AlertDialog(
+                onDismissRequest = { showExport = false },
+                title = { Text("Export backup") },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        Text("Copy this JSON to another device, then Import it there. Keep it private — it contains your secrets.", fontSize = 12.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Text(store.exportJson(), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showExport = false }) { Text("DONE") }
+                }
+            )
+        }
+        if (showImport) {
+            var pasted by remember { mutableStateOf("") }
+            var imported by remember { mutableStateOf<Int?>(null) }
+            AlertDialog(
+                onDismissRequest = { showImport = false; refresh() },
+                title = { Text("Import backup") },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        Text("Paste a backup JSON array exported from Secount.", fontSize = 12.sp)
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(pasted, { pasted = it; imported = null }, label = { Text("Backup JSON") })
+                        if (imported != null) Text("Imported $imported countdown(s).", fontSize = 12.sp)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        imported = store.importJson(pasted)
+                        refresh()
+                    }) { Text("IMPORT") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showImport = false; refresh() }) { Text("CLOSE") }
+                }
+            )
+        }
         secretOf?.let { item ->
             val live = store.byId(item.id) ?: item
             var opened by remember(item.id) { mutableStateOf(false) }
-            var reply by remember(item.id) { mutableStateOf(live.replyMessage) }
+            var reply by remember(item.id) { mutableStateOf("") }
             var sending by remember(item.id) { mutableStateOf(false) }
             val forMe = live.isForMe(myId)
             AlertDialog(
                 onDismissRequest = { secretOf = null },
                 title = { Text(if (forMe) "🎁 You have a new secret message — open it" else "💌 You have a message") },
                 text = {
-                    Column {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
                         if (!opened) {
                             Text(
                                 if (forMe) "Your partner sent you a surprise. It arrived at zero — open it when you're ready."
@@ -510,16 +746,28 @@ fun App() {
                             else live.message + live.secretMessage
                             Text(if (mainSecret.isNotEmpty()) mainSecret else "The day has arrived!")
                             Spacer(Modifier.height(10.dp))
-                            val shownReply = store.byId(live.id)?.replyMessage ?: ""
-                            if (shownReply.isNotEmpty()) {
-                                Text("💬 Reply:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text(shownReply, fontSize = 13.sp)
+                            val thread = (store.byId(live.id)?.threadEntries() ?: live.threadEntries())
+                            if (thread.isNotEmpty()) {
+                                Text("💬 Conversation:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                for ((ts, who, text) in thread) {
+                                    val whenS = if (ts > 0) {
+                                        try {
+                                            java.time.Instant.ofEpochSecond(ts).atZone(ZoneId.systemDefault()).toLocalDateTime().toString().take(16).replace("T", " ")
+                                        } catch (e: Exception) {
+                                            ""
+                                        }
+                                    } else ""
+                                    Text(
+                                        (if (who.isNotEmpty()) "$who: " else "") + text + (if (whenS.isNotEmpty()) "  ($whenS)" else ""),
+                                        fontSize = 13.sp
+                                    )
+                                }
                                 Spacer(Modifier.height(6.dp))
                             }
                             if (pair.isPaired() && (forMe || live.forPartner)) {
                                 OutlinedTextField(
                                     reply, { reply = it },
-                                    label = { Text(if (shownReply.isEmpty()) "Write a reply…" else "Update reply…") }
+                                    label = { Text(if (thread.isEmpty()) "Write a reply…" else "Reply…") }
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Button(
@@ -531,10 +779,11 @@ fun App() {
                                             try {
                                                 val cur = store.byId(live.id)
                                                 if (cur != null) {
-                                                    cur.replyMessage = text
+                                                    cur.appendReply(if (forMe) "me" else "sender", text, nowSec())
                                                     store.addOrUpdate(cur)
                                                 }
                                                 engine.sendReply(live.id, text)
+                                                reply = ""
                                                 refresh()
                                             } finally {
                                                 sending = false
@@ -575,9 +824,10 @@ fun App() {
             AlertDialog(
                 onDismissRequest = { confirmDelete = null },
                 title = { Text("Delete countdown") },
-                text = { Text("Delete '${item.title}'?" + if (item.forPartner) "\n(This removes it on this device only.)" else "") },
+                text = { Text("Delete '${item.title}'?" + if (item.forPartner) "\n(This removes it on this device only.)" else "" + "\nYou can undo right after.") },
                 confirmButton = {
                     TextButton(onClick = {
+                        undoItem = item.copyFromJson()
                         store.delete(item.id)
                         confirmDelete = null
                         refresh()
@@ -595,6 +845,27 @@ fun App() {
 private fun PinGate(pin: PinLock, themeName: String, darkMode: String, onUnlock: () -> Unit) {
     var entry by remember { mutableStateOf("") }
     var denied by remember { mutableStateOf(false) }
+    var tickLock by remember { mutableStateOf(0) }
+    fun tryUnlock() {
+        if (!pin.canAttempt()) {
+            denied = true
+            return
+        }
+        if (pin.unlock(entry)) {
+            entry = ""
+            denied = false
+            onUnlock()
+        } else denied = true
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            tickLock++
+        }
+    }
+    @Suppress("UNUSED_EXPRESSION")
+    tickLock
+    val lockedSecs = pin.lockoutRemainingSec()
     SecountTheme(themeName, darkMode) {
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -612,7 +883,7 @@ private fun PinGate(pin: PinLock, themeName: String, darkMode: String, onUnlock:
                 Spacer(Modifier.height(4.dp))
                 Text(
                     if (pin.isDefaultPin()) "First run PIN is 1234 — change it in PIN settings."
-                    else "Enter your app PIN.",
+                    else "Enter your app PIN. Locks only when you go to Home — stays unlocked otherwise.",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f)
                 )
@@ -621,16 +892,26 @@ private fun PinGate(pin: PinLock, themeName: String, darkMode: String, onUnlock:
                     entry, { entry = it.filter { c -> c.isDigit() }.take(8); denied = false },
                     placeholder = { Text("PIN") },
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation()
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { tryUnlock() }),
+                    enabled = lockedSecs <= 0
                 )
-                if (denied) Text("Wrong PIN.", color = MaterialTheme.colorScheme.error)
+                if (lockedSecs > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("Too many tries — wait ${lockedSecs}s.", color = MaterialTheme.colorScheme.error)
+                } else {
+                    if (denied) {
+                        val left = pin.attemptsLeft()
+                        Text(
+                            if (left > 0) "Wrong PIN. $left tries left before a pause."
+                            else "Wrong PIN.",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = {
-                    if (pin.unlock(entry)) {
-                        entry = ""
-                        onUnlock()
-                    } else denied = true
-                }) { Text("UNLOCK") }
+                Button(onClick = { tryUnlock() }, enabled = lockedSecs <= 0) { Text("UNLOCK") }
             }
         }
     }
@@ -915,7 +1196,8 @@ private fun EventCard(
                     if (forMe) bits.add("🎁 FOR YOU")
                     else if (mine && e.forPartner) bits.add(if (e.delivered) "✉ DELIVERED" else "✉ TO PARTNER")
                     if (e.hasSecret() && !forMe) bits.add("SECRET ARMED")
-                    if (e.repeatYearly) bits.add("YEARLY")
+                    if (e.effectiveRepeat() != "once") bits.add(e.repeatLabel().uppercase())
+                    if (e.soundName == "Silent") bits.add("MUTED")
                     Text(bits.joinToString(" • "), color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
                 Column(horizontalAlignment = Alignment.End) {
@@ -970,26 +1252,46 @@ private fun EditDialog(
     var category by remember { mutableStateOf(initial.displayCategory()) }
     var icon by remember { mutableStateOf(initial.displayIcon()) }
     var date by remember { mutableStateOf(initial.date) }
-    var yearly by remember { mutableStateOf(initial.repeatYearly) }
+    var hourS by remember { mutableStateOf(initial.hour.coerceIn(0, 23).toString()) }
+    var minS by remember { mutableStateOf(initial.minute.coerceIn(0, 59).toString().padStart(2, '0')) }
+    var repeatSel by remember {
+        mutableStateOf(
+            when (initial.effectiveRepeat()) {
+                "yearly" -> "Yearly"
+                "monthly" -> "Monthly"
+                "weekly" -> "Weekly"
+                else -> "One-time"
+            }
+        )
+    }
     var featured by remember { mutableStateOf(initial.featured) }
     var sound by remember { mutableStateOf(initial.soundEnabled) }
+    var soundSel by remember { mutableStateOf(if (initial.soundName in SOUNDS) initial.soundName else "Chime") }
+    var remind1 by remember { mutableStateOf(initial.remind1d) }
+    var remind7 by remember { mutableStateOf(initial.remind7d) }
     var secretOn by remember { mutableStateOf(initial.secretEnabled) }
     var message by remember { mutableStateOf(initial.message) }
     var secretMsg by remember { mutableStateOf(initial.secretMessage) }
     var accentIdx by remember {
         mutableStateOf(maxOf(0, ACCENTS.indexOfFirst { it.second == initial.accentHex }))
     }
+    var customHex by remember {
+        mutableStateOf(
+            if (ACCENTS.none { it.second == initial.accentHex } && initial.accentHex.isNotEmpty()) initial.accentHex else ""
+        )
+    }
     var audience by remember {
         mutableStateOf(if (initial.forPartner && partnerOpt != null) partnerOpt else "Just me")
     }
     var showDate by remember { mutableStateOf(false) }
     var titleErr by remember { mutableStateOf(false) }
+    var timeErr by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text(if (isNew) "Create countdown" else "Edit countdown") },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     title, { title = it; titleErr = false },
                     label = { Text("Title") },
@@ -1010,7 +1312,7 @@ private fun EditDialog(
                 DropDown("Icon", EventItem.ICON_PRESETS, icon, { icon = it })
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(onClick = { showDate = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Target date: $date")
+                    Text("Target date: $date • ${hourS.padStart(2, '0')}:${minS.padStart(2, '0')}")
                 }
                 if (showDate) {
                     val state = rememberDatePickerState(
@@ -1029,13 +1331,35 @@ private fun EditDialog(
                         }
                     ) { DatePicker(state) }
                 }
-                CheckRow("Repeat every year", yearly) { yearly = it }
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        hourS, { hourS = it.filter { c -> c.isDigit() }.take(2) },
+                        label = { Text("Hour") }, singleLine = true, modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        minS, { minS = it.filter { c -> c.isDigit() }.take(2) },
+                        label = { Text("Min") }, singleLine = true, modifier = Modifier.weight(1f)
+                    )
+                }
+                if (timeErr != null) Text(timeErr!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                Spacer(Modifier.height(6.dp))
+                DropDown("Repeat", REPEATS, repeatSel, { repeatSel = it })
+                Spacer(Modifier.height(6.dp))
                 CheckRow("Featured (pinned first)", featured) { featured = it }
                 CheckRow("Sound alert", sound) { sound = it }
+                DropDown("Sound style", SOUNDS, soundSel, { soundSel = it })
+                CheckRow("Remind 1 day before", remind1) { remind1 = it }
+                CheckRow("Remind 7 days before", remind7) { remind7 = it }
                 CheckRow("Secret message at zero", secretOn) { secretOn = it }
                 DropDown("Accent", ACCENTS.map { it.first }, ACCENTS[accentIdx].first, {
                     accentIdx = ACCENTS.indexOfFirst { a -> a.first == it }
+                    if (ACCENTS[accentIdx].second.isNotEmpty()) customHex = ""
                 })
+                OutlinedTextField(
+                    customHex, { customHex = it.take(7) },
+                    label = { Text("Custom #RRGGBB (optional)") }, singleLine = true
+                )
                 OutlinedTextField(message, { message = it }, label = { Text("Message") })
                 Spacer(Modifier.height(6.dp))
                 OutlinedTextField(secretMsg, { secretMsg = it }, label = { Text("Secret message") })
@@ -1048,15 +1372,41 @@ private fun EditDialog(
                     titleErr = true
                     return@TextButton
                 }
+                val h = hourS.toIntOrNull()
+                val m = minS.toIntOrNull()
+                if (h == null || h !in 0..23 || m == null || m !in 0..59) {
+                    timeErr = "Hour 0–23, minute 0–59."
+                    return@TextButton
+                }
+                var hex = customHex.trim()
+                if (hex.isNotEmpty()) {
+                    if (!hex.startsWith("#")) hex = "#$hex"
+                    if (!Regex("^#[0-9a-fA-F]{6}$").matches(hex)) {
+                        timeErr = "Custom color must be #RRGGBB."
+                        return@TextButton
+                    }
+                }
                 val item = initial.copyFromJson()
                 item.title = title.trim()
                 item.date = date
+                item.hour = h
+                item.minute = m
                 item.category = category.trim().ifEmpty { "Countdown" }
                 item.icon = icon.trim().ifEmpty { "📅" }
-                item.accentHex = ACCENTS[accentIdx].second
-                item.repeatYearly = yearly
+                item.accentHex = if (hex.isNotEmpty()) hex.uppercase() else ACCENTS[accentIdx].second
+                item.setRepeat(
+                    when (repeatSel) {
+                        "Yearly" -> "yearly"
+                        "Monthly" -> "monthly"
+                        "Weekly" -> "weekly"
+                        else -> "once"
+                    }
+                )
                 item.featured = featured
                 item.soundEnabled = sound
+                item.soundName = soundSel
+                item.remind1d = remind1
+                item.remind7d = remind7
                 item.secretEnabled = secretOn
                 item.message = message.trim()
                 item.secretMessage = secretMsg
@@ -1075,6 +1425,75 @@ private fun EditDialog(
             }
         }
     )
+}
+
+@Composable
+private fun CalendarView(
+    month: LocalDate,
+    today: LocalDate,
+    store: EventStore,
+    myId: String,
+    selected: LocalDate?,
+    onMonth: (LocalDate) -> Unit,
+    onDay: (LocalDate?) -> Unit
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { onMonth(month.minusMonths(1)); onDay(null) }) { Text("‹") }
+            Text(
+                month.month.name.lowercase().replaceFirstChar { it.uppercase() } + " ${month.year}",
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = { onMonth(LocalDate.now().withDayOfMonth(1)) }) { Text("Today") }
+            TextButton(onClick = { onMonth(month.plusMonths(1)); onDay(null) }) { Text("›") }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            for (d in listOf("M", "T", "W", "T", "F", "S", "S")) {
+                Text(d, modifier = Modifier.weight(1f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        val first = month.withDayOfMonth(1)
+        // Monday-first offset
+        val offset = (first.dayOfWeek.value - 1) % 7
+        val len = month.lengthOfMonth()
+        var day = 1 - offset
+        repeat(6) {
+            Row(Modifier.fillMaxWidth()) {
+                repeat(7) {
+                    if (day in 1..len) {
+                        val d = LocalDate.of(month.year, month.month, day)
+                        var n = 0
+                        for (e in store.items()) {
+                            if (e.isForMe(myId) && !e.isDueToday(today)) continue
+                            if (e.effectiveRepeat() == "once") {
+                                if (e.date == d) n++
+                            } else if (e.nextOccurrence(today) == d || e.isDueToday(d)) n++
+                        }
+                        val sel = selected == d
+                        OutlinedButton(
+                            onClick = { onDay(if (sel) null else d) },
+                            modifier = Modifier.weight(1f).padding(1.dp)
+                        ) {
+                            Text(
+                                if (n > 0) "$day•$n" else "$day",
+                                fontSize = 11.sp,
+                                fontWeight = if (d == today || sel) FontWeight.Bold else FontWeight.Normal,
+                                color = if (d == today) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
+                    day++
+                }
+            }
+            if (day > len) return@repeat
+        }
+        if (selected != null) {
+            Text("Showing $selected — tap again to clear.", fontSize = 12.sp)
+        }
+    }
 }
 
 @Composable
@@ -1099,12 +1518,16 @@ private fun sample(
     val e = EventItem()
     e.title = title
     e.date = LocalDate.now().plusDays(daysOut)
+    e.hour = 9
+    e.minute = 0
     e.category = category
     e.icon = icon
     e.accentHex = accent
     e.message = msg
-    e.repeatYearly = yearly
+    e.setRepeat(if (yearly) "yearly" else "once")
     e.soundEnabled = true
+    e.soundName = "Chime"
+    e.remind1d = true
     e.senderId = myId
     e.forPartner = false
     store.addOrUpdate(e)

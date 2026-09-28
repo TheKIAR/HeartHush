@@ -28,4 +28,15 @@ class MainActivity : ComponentActivity() {
         }
         setContent { App() }
     }
+
+    override fun onPause() {
+        super.onPause()
+        // User rule: lock only when going to Home/background, never on a timer.
+        // App.kt polls this flag once per second and shows the PIN gate on return.
+        try {
+            getSharedPreferences("secount", MODE_PRIVATE)
+                .edit().putString("secount_need_lock", "1").apply()
+        } catch (ignored: Exception) {
+        }
+    }
 }

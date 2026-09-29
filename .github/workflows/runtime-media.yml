@@ -30,7 +30,7 @@ jobs:
           unzip -q gradle.zip -d "$HOME/gradle"
           echo "$HOME/gradle/gradle-8.13/bin" >> "$GITHUB_PATH"
       - name: Build desktop app before launch
-        run: gradle -p android :desktopApp:compileKotlinDesktop --no-daemon
+        run: gradle -p android :desktopApp:compileKotlin --no-daemon
       - name: Capture actual desktop runtime
         shell: bash
         run: |

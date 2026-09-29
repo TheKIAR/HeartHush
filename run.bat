@@ -4,8 +4,12 @@ REM Secount launcher - picks a Java 17+ runtime explicitly.
 REM (Double-clicking the .jar directly fails on machines where .jar
 REM files are still associated with an old Java 8.)
 set "JAVACMD="
-if exist "C:\Program Files\Java\jdk-25.0.2\bin\java.exe" set "JAVACMD=C:\Program Files\Java\jdk-25.0.2\bin\java.exe"
-if not defined JAVACMD if exist "%LOCALAPPDATA%\Secount\tools\jdk-17\bin\java.exe" set "JAVACMD=%LOCALAPPDATA%\Secount\tools\jdk-17\bin\java.exe"
+set "JAVAFLAGS="
+REM Prefer the build JDK 17 first: Skiko/Compose runs warning-free on 17.
+REM Newer JDKs (25+) print "restricted method System::load" warnings.
+if exist "%LOCALAPPDATA%\Secount\tools\jdk-17\bin\java.exe" set "JAVACMD=%LOCALAPPDATA%\Secount\tools\jdk-17\bin\java.exe"
+if not defined JAVACMD if exist "C:\Program Files\Java\jdk-25.0.2\bin\java.exe" set "JAVACMD=C:\Program Files\Java\jdk-25.0.2\bin\java.exe"
+if defined JAVACMD if exist "C:\Program Files\Java\jdk-25.0.2\bin\java.exe" if "!JAVACMD!"=="C:\Program Files\Java\jdk-25.0.2\bin\java.exe" set "JAVAFLAGS=--enable-native-access=ALL-UNNAMED"
 if not defined JAVACMD (
   set "VERLINE="
   for /f "tokens=*" %%a in ('java -version 2^>^&1 ^| findstr /i "version"') do set "VERLINE=%%a"
@@ -23,4 +27,8 @@ if not defined JAVACMD (
   pause
   exit /b 1
 )
-"!JAVACMD!" -jar "%~dp0Secount.jar"
+if defined JAVAFLAGS (
+  "!JAVACMD!" !JAVAFLAGS! -jar "%~dp0Secount.jar"
+) else (
+  "!JAVACMD!" -jar "%~dp0Secount.jar"
+)

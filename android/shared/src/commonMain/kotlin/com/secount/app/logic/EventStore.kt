@@ -33,55 +33,7 @@ class EventStore(dir: String, name: String = "events.json") {
             backingItems.clear()
         }
         var changed = false
-        if (backingItems.isEmpty()) {
-            backingItems.add(
-                seed(
-                    "Valentine's Day", LocalDate.of(2027, 2, 14),
-                    "A little countdown for a very special day.", true,
-                    "❤", "#FF5D97", "Holiday"
-                )
-            )
-            backingItems.add(
-                seed(
-                    "Birthday Bash", LocalDate.now().plusDays(21),
-                    "Cake, friends and gifts - don't forget the candles!", false,
-                    "🎂", "#FFB020", "Birthday"
-                )
-            )
-            backingItems.add(
-                seed(
-                    "App Launch 🚀", LocalDate.now().plusDays(45),
-                    "Countdown to your Android app / game release.", false,
-                    "🚀", "#7C6CFF", "App Release"
-                )
-            )
-            backingItems.add(
-                seed(
-                    "Final Exams", LocalDate.now().plusDays(12),
-                    "Study a little every day - you've got this!", false,
-                    "🎓", "#22C4A8", "Exam"
-                )
-            )
-            changed = true
-        }
-        var hasValentine = false
-        for (e in backingItems) {
-            if (e.title.lowercase().contains("valentine")) {
-                hasValentine = true
-                break
-            }
-        }
-        if (!hasValentine) {
-            backingItems.add(
-                0,
-                seed(
-                    "Valentine's Day", LocalDate.of(2027, 2, 14),
-                    "A little countdown for a very special day.", true,
-                    "❤", "#FF5D97", "Holiday"
-                )
-            )
-            changed = true
-        }
+        // No samples/seeds: start empty, keep what the user created.
         for (e in backingItems) {
             if (e.icon.trim().isEmpty()) {
                 e.icon = guessIcon(e)
@@ -225,28 +177,6 @@ class EventStore(dir: String, name: String = "events.json") {
             if (t.contains("sport") || t.contains("match") || t.contains("football")) return "⚽"
             if (t.contains("work") || t.contains("meeting")) return "💻"
             return "❤"
-        }
-
-        private fun seed(
-            title: String,
-            date: LocalDate,
-            message: String,
-            featured: Boolean,
-            icon: String,
-            accentHex: String,
-            category: String
-        ): EventItem {
-            val e = EventItem()
-            e.title = title
-            e.date = date
-            e.message = message
-            e.featured = featured
-            e.repeatYearly = true
-            e.soundEnabled = true
-            e.icon = icon
-            e.accentHex = accentHex
-            e.category = category
-            return e
         }
     }
 }

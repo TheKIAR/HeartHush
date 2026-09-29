@@ -543,19 +543,6 @@ fun App() {
                                 closeDrawer()
                             }
                         )
-                        NavigationDrawerItem(
-                            label = { Text(Lang.t("addSamples")) },
-                            selected = false,
-                            onClick = {
-                                sample(store, myId, "Birthday 🎂", 14, "Birthday", "🎂", "#FFB020", "Cake, friends and music!", true)
-                                sample(store, myId, "Final Exams 🎓", 30, "Exam", "🎓", "#22C4A8", "One chapter a day keeps stress away.", true)
-                                sample(store, myId, "Android App Launch 🚀", 60, "App Release", "🚀", "#7C6CFF", "Release v2.0 to the Play Store.", false)
-                                sample(store, myId, "Beach Trip ✈", 90, "Trip", "✈", "#38BDF8", "Sunscreen, playlists, passports.", false)
-                                sample(store, myId, "Wedding Day 💖", 120, "Wedding", "💖", "#F472B6", "The big day!", true)
-                                refresh()
-                                closeDrawer()
-                            }
-                        )
                         Spacer(Modifier.height(8.dp))
                         HorizontalDivider()
                         Spacer(Modifier.height(8.dp))
@@ -790,15 +777,6 @@ fun App() {
                                 editing = item
                                 editIsNew = true
                             }) { Text(Lang.t("newBtn")) }
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(onClick = {
-                                sample(store, myId, "Birthday 🎂", 14, "Birthday", "🎂", "#FFB020", "Cake, friends and music!", true)
-                                sample(store, myId, "Final Exams 🎓", 30, "Exam", "🎓", "#22C4A8", "One chapter a day keeps stress away.", true)
-                                sample(store, myId, "Android App Launch 🚀", 60, "App Release", "🚀", "#7C6CFF", "Release v2.0 to the Play Store.", false)
-                                sample(store, myId, "Beach Trip ✈", 90, "Trip", "✈", "#38BDF8", "Sunscreen, playlists, passports.", false)
-                                sample(store, myId, "Wedding Day 💖", 120, "Wedding", "💖", "#F472B6", "The big day!", true)
-                                refresh()
-                            }) { Text(Lang.t("samplesBtn")) }
                         }
                     }
                 } else {
@@ -2238,33 +2216,4 @@ private fun CheckRow(label: String, checked: Boolean, onChange: (Boolean) -> Uni
         Checkbox(checked, onChange)
         Text(label)
     }
-}
-
-private fun sample(
-    store: EventStore,
-    myId: String,
-    title: String,
-    daysOut: Long,
-    category: String,
-    icon: String,
-    accent: String,
-    msg: String,
-    yearly: Boolean
-) {
-    val e = EventItem()
-    e.title = title
-    e.date = LocalDate.now().plusDays(daysOut)
-    e.hour = 9
-    e.minute = 0
-    e.category = category
-    e.icon = icon
-    e.accentHex = accent
-    e.message = msg
-    e.setRepeat(if (yearly) "yearly" else "once")
-    e.soundEnabled = true
-    e.soundName = "Chime"
-    e.remind1d = true
-    e.senderId = myId
-    e.forPartner = false
-    store.addOrUpdate(e)
 }

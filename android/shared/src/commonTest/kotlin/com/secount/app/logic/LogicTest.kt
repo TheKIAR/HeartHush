@@ -19,11 +19,10 @@ class LogicTest {
 
     @Test
     fun seedsLoad() {
+        // No samples/seeds: fresh store starts empty.
         val store = tempStore()
         store.load()
-        assertEquals(4, store.items().size)
-        assertTrue(store.items()[0].icon.isNotEmpty())
-        assertTrue(store.items()[0].category.isNotEmpty())
+        assertEquals(0, store.items().size)
     }
 
     @Test
@@ -94,6 +93,16 @@ class LogicTest {
     fun featuredSortsFirst() {
         val store = tempStore()
         store.load()
+        val a = EventItem()
+        a.title = "Plain"
+        a.date = LocalDate.now().plusDays(5)
+        a.featured = false
+        store.addOrUpdate(a)
+        val b = EventItem()
+        b.title = "Starred"
+        b.date = LocalDate.now().plusDays(10)
+        b.featured = true
+        store.addOrUpdate(b)
         assertTrue(store.sortedByNext(LocalDate.now())[0].featured)
     }
 

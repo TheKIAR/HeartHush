@@ -121,6 +121,25 @@ object PairCrypto {
     }
 }
 
+/** Password-protected backup: ENC1 envelope with key from password. */
+object BackupCrypto {
+    fun encrypt(password: String, plain: String): String {
+        val key = sha256(("secount-backup|" + password).encodeToByteArray())
+        return PairCrypto.encryptToHex(key, plain)
+    }
+
+    fun decrypt(password: String, cipher: String): String? {
+        return try {
+            val t = cipher.trim()
+            if (!t.startsWith("ENC1.")) return null
+            val key = sha256(("secount-backup|" + password).encodeToByteArray())
+            PairCrypto.decryptHex(key, t)
+        } catch (e: Exception) {
+            null
+        }
+    }
+}
+
 data class IncomingReq(val code: String, val accountId: String, val at: Long)
 
 data class SyncResult(
@@ -132,7 +151,9 @@ data class SyncResult(
     var offline: Boolean = false,
     var replyReceived: Boolean = false,
     /** Id of the countdown that got a reply (to auto-open it), or null. */
-    var replyId: String? = null
+    var replyId: String? = null,
+    var deleteId: String? = null,
+    var seenId: String? = null
 )
 
 class PairStore(ns: String = "") {
@@ -429,7 +450,9 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
 
     private fun envelopeMaybeEnc(type: String, data: String): String {
         return try {
-            if (type == "countdown" || type == "reply" || type == "delivered") {
+            if (type == "countdown" || type == "reply" || type == "delivered" ||
+                type == "seen" || type == "delete" || type == "photo-chunk"
+            ) {
                 val k = pairKey()
                 if (k != null) return envelope(type, PairCrypto.encryptToHex(k, data))
             }
@@ -449,18 +472,144 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
         }
     }
 
-    /** Retry publishing partner countdowns that failed to send while offline. */
+    /** Retry publishing partner countdowns / replies / deletes / seens that failed while offline. */
     private fun sendUnsent() {
         if (!pair.isPaired()) return
         val topic = pair.pairTopic() ?: return
         for (e in store.items()) {
             if (!e.forPartner || !e.isMine(pair.accountId)) continue
-            if (prefsGet(pair.k("sent_" + e.id)) != null) continue
+            val sentVer = prefsGet(pair.k("sent_" + e.id))?.toLongOrNull()
+            // Resend when never sent, or when edited after last send (versioned).
+            if (sentVer != null && sentVer >= e.updatedAtSec) continue
             try {
                 httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("countdown", e.toJson()), 12000)
-                prefsPut(pair.k("sent_" + e.id), "1")
+                prefsPut(pair.k("sent_" + e.id), e.updatedAtSec.toString())
+                // Piggyback photo chunks for this item when queued.
+                try {
+                    sendQueuedPhoto(e.id)
+                } catch (ignored: Exception) {
+                }
             } catch (ignored: Exception) {
             }
+        }
+        // Queued replies.
+        try {
+            val rq = prefsGet(pair.k("reply_queue")) ?: ""
+            if (rq.isNotEmpty()) {
+                val parts = rq.split("\n").filter { it.isNotBlank() }
+                val remain = mutableListOf<String>()
+                for (p in parts) {
+                    val bar = p.indexOf('|')
+                    if (bar < 0) continue
+                    val id = p.substring(0, bar)
+                    val txt = p.substring(bar + 1)
+                    try {
+                        httpPost(
+                            PairNet.BASE + "/" + topic,
+                            envelopeMaybeEnc("reply", "{\"id\":" + q(id) + ",\"reply\":" + q(txt) + "}"),
+                            10000
+                        )
+                    } catch (e: Exception) {
+                        remain.add(p)
+                    }
+                }
+                prefsPut(pair.k("reply_queue"), remain.joinToString("\n"))
+            }
+        } catch (ignored: Exception) {
+        }
+        // Queued deletes.
+        try {
+            val dq = prefsGet(pair.k("delete_queue")) ?: ""
+            if (dq.isNotEmpty()) {
+                val remain = mutableListOf<String>()
+                for (id in dq.split("\n").filter { it.isNotBlank() }) {
+                    try {
+                        httpPost(
+                            PairNet.BASE + "/" + topic,
+                            envelopeMaybeEnc("delete", "{\"id\":" + q(id) + "}"),
+                            10000
+                        )
+                    } catch (e: Exception) {
+                        remain.add(id)
+                    }
+                }
+                prefsPut(pair.k("delete_queue"), remain.joinToString("\n"))
+            }
+        } catch (ignored: Exception) {
+        }
+        // Queued seen receipts.
+        try {
+            val sq = prefsGet(pair.k("seen_queue")) ?: ""
+            if (sq.isNotEmpty()) {
+                val remain = mutableListOf<String>()
+                for (id in sq.split("\n").filter { it.isNotBlank() }) {
+                    try {
+                        httpPost(
+                            PairNet.BASE + "/" + topic,
+                            envelopeMaybeEnc("seen", "{\"id\":" + q(id) + ",\"at\":" + nowSec() + "}"),
+                            10000
+                        )
+                    } catch (e: Exception) {
+                        remain.add(id)
+                    }
+                }
+                prefsPut(pair.k("seen_queue"), remain.joinToString("\n"))
+            }
+        } catch (ignored: Exception) {
+        }
+    }
+
+    private fun queueReply(id: String, text: String) {
+        try {
+            val cur = prefsGet(pair.k("reply_queue")) ?: ""
+            val clean = text.replace("\n", " ")
+            prefsPut(pair.k("reply_queue"), (if (cur.isBlank()) "" else cur + "\n") + "$id|$clean")
+        } catch (ignored: Exception) {
+        }
+    }
+
+    private fun queueDelete(id: String) {
+        try {
+            val cur = prefsGet(pair.k("delete_queue")) ?: ""
+            if (cur.lines().any { it.trim() == id }) return
+            prefsPut(pair.k("delete_queue"), (if (cur.isBlank()) "" else cur + "\n") + id)
+        } catch (ignored: Exception) {
+        }
+    }
+
+    private fun queueSeen(id: String) {
+        try {
+            val cur = prefsGet(pair.k("seen_queue")) ?: ""
+            if (cur.lines().any { it.trim() == id }) return
+            prefsPut(pair.k("seen_queue"), (if (cur.isBlank()) "" else cur + "\n") + id)
+        } catch (ignored: Exception) {
+        }
+    }
+
+    /** Queue a photo for chunked sync (compressed base64 stored, sent on next sync). */
+    fun queuePhoto(id: String, b64: String) {
+        try {
+            if (b64.isBlank() || b64.length > 400000) return
+            prefsPut(pair.k("photoq_" + id), b64)
+        } catch (ignored: Exception) {
+        }
+    }
+
+    private fun sendQueuedPhoto(id: String) {
+        val b64 = try { prefsGet(pair.k("photoq_" + id)) ?: return } catch (e: Exception) { return }
+        if (b64.isBlank()) return
+        val topic = pair.pairTopic() ?: return
+        val chunkSize = 3000
+        val total = (b64.length + chunkSize - 1) / chunkSize
+        if (total <= 0 || total > 150) return
+        for (i in 0 until total) {
+            val part = b64.substring(i * chunkSize, minOf(b64.length, (i + 1) * chunkSize))
+            val data = "{\"id\":" + q(id) + ",\"idx\":" + i + ",\"total\":" + total + ",\"chunk\":" + q(part) + "}"
+            httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("photo-chunk", data), 12000)
+        }
+        try {
+            prefsPut(pair.k("photoq_" + id), "")
+        } catch (ignored: Exception) {
         }
     }
 
@@ -534,9 +683,36 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
     suspend fun sendCountdown(item: EventItem): Boolean = withContext(Dispatchers.IO) {
         try {
             val topic = pair.pairTopic() ?: return@withContext false
+            try {
+                item.touchUpdated(nowSec())
+                store.addOrUpdate(item)
+            } catch (ignored: Exception) {
+            }
             httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("countdown", item.toJson()), 12000)
-            markSent(item.id)
+            prefsPut(pair.k("sent_" + item.id), item.updatedAtSec.toString())
+            // Send queued photo chunks right away (same sync window).
+            try {
+                sendQueuedPhoto(item.id)
+            } catch (ignored: Exception) {
+            }
             true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Synced delete: tell the partner to drop their copy too. Queued offline. */
+    suspend fun sendDelete(itemId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val topic = pair.pairTopic() ?: return@withContext false
+            val data = "{\"id\":" + q(itemId) + "}"
+            try {
+                httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("delete", data), 12000)
+                true
+            } catch (e: Exception) {
+                queueDelete(itemId)
+                false
+            }
         } catch (e: Exception) {
             false
         }
@@ -545,20 +721,43 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
     suspend fun sendDelivered(itemId: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val topic = pair.pairTopic() ?: return@withContext false
-            httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("delivered", "{\"id\":" + q(itemId) + "}"), 12000)
+            val data = "{\"id\":" + q(itemId) + ",\"at\":" + nowSec() + "}"
+            httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("delivered", data), 12000)
             true
         } catch (e: Exception) {
             false
         }
     }
 
-    /** Send / update the reply thread on a shared secret countdown. */
+    /** Seen / read receipt: receiver opened the message. Queued offline. */
+    suspend fun sendSeen(itemId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val topic = pair.pairTopic() ?: return@withContext false
+            val data = "{\"id\":" + q(itemId) + ",\"at\":" + nowSec() + "}"
+            try {
+                httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("seen", data), 12000)
+                true
+            } catch (e: Exception) {
+                queueSeen(itemId)
+                false
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Send / update the reply thread on a shared secret countdown. Queued offline. */
     suspend fun sendReply(itemId: String, reply: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val topic = pair.pairTopic() ?: return@withContext false
             val data = "{\"id\":" + q(itemId) + ",\"reply\":" + q(reply) + "}"
-            httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("reply", data), 12000)
-            true
+            try {
+                httpPost(PairNet.BASE + "/" + topic, envelopeMaybeEnc("reply", data), 12000)
+                true
+            } catch (e: Exception) {
+                queueReply(itemId, reply)
+                false
+            }
         } catch (e: Exception) {
             false
         }
@@ -688,7 +887,49 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
                     // echoing back our own item has senderId != from -> drop.
                     if (item.senderId.isNotEmpty() && item.senderId != from) return
                     item.senderId = from
-                    store.addOrUpdate(item)
+                    val existing = store.byId(item.id)
+                    if (existing != null) {
+                        // Stale edit protection: don't let an old resend wipe
+                        // a newer local copy — merge conversation only.
+                        if (item.updatedAtSec < existing.updatedAtSec) {
+                            existing.mergeThread(item.replyThread)
+                            store.addOrUpdate(existing)
+                        } else {
+                            // Preserve local conversation when incoming is older/smaller.
+                            val keepThread = existing.replyThread
+                            val keepMsg = existing.replyMessage
+                            store.addOrUpdate(item)
+                            val applied = store.byId(item.id)
+                            if (applied != null && keepThread.length > (item.replyThread.length)) {
+                                applied.mergeThread(keepThread)
+                                if (keepMsg.isNotBlank() && applied.replyMessage.isBlank()) {
+                                    applied.replyMessage = keepMsg
+                                }
+                                store.addOrUpdate(applied)
+                            }
+                        }
+                        // A re-sent countdown clears a pending delete for it.
+                        try {
+                            val dq = prefsGet(pair.k("delete_queue")) ?: ""
+                            if (dq.lines().any { it.trim() == item.id }) {
+                                prefsPut(
+                                    pair.k("delete_queue"),
+                                    dq.lines().filter { it.trim() != item.id }.joinToString("\n")
+                                )
+                            }
+                        } catch (ignored: Exception) {
+                        }
+                    } else {
+                        // Don't resurrect an item the user already deleted via sync.
+                        try {
+                            val dq = prefsGet(pair.k("delete_queue")) ?: ""
+                            if (dq.lines().any { it.trim() == item.id }) return
+                        } catch (ignored: Exception) {
+                        }
+                        store.addOrUpdate(item)
+                    }
+                    // This counts as (re)sent — clear any photo queue marker only
+                    // after chunks arrive (handled in photo-chunk branch).
                     res.changed = true
                 } catch (ignored: Exception) {
                 }
@@ -720,10 +961,115 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
                 val d = PairStore.flatMap(dataRaw)
                 val id = d["id"] ?: return
                 val item = store.byId(id) ?: return
-                if (item.isMine(pair.accountId) && !item.delivered) {
+                if (!item.isMine(pair.accountId)) return
+                val at = d["at"]?.toLongOrNull() ?: nowSec()
+                var touched = false
+                if (!item.delivered) {
                     item.delivered = true
+                    touched = true
+                }
+                if (at > item.deliveredAtSec) {
+                    item.deliveredAtSec = at
+                    touched = true
+                }
+                if (touched) {
                     store.addOrUpdate(item)
                     res.changed = true
+                }
+            }
+            "seen" -> {
+                if (!pair.isPaired() || from != pair.partnerId()) return
+                val d = PairStore.flatMap(dataRaw)
+                val id = d["id"] ?: return
+                val item = store.byId(id) ?: return
+                if (!item.isMine(pair.accountId)) return
+                val at = d["at"]?.toLongOrNull() ?: nowSec()
+                if (at > item.seenAtSec) {
+                    item.seenAtSec = at
+                    if (!item.delivered) {
+                        item.delivered = true
+                        if (item.deliveredAtSec <= 0) item.deliveredAtSec = at
+                    }
+                    store.addOrUpdate(item)
+                    res.changed = true
+                    res.seenId = id
+                }
+            }
+            "delete" -> {
+                if (!pair.isPaired() || from != pair.partnerId()) return
+                try {
+                    val d = PairStore.flatMap(dataRaw)
+                    val id = d["id"] ?: return
+                    val item = store.byId(id) ?: return
+                    // Only the creator can delete via sync.
+                    if (item.senderId != from) return
+                    store.delete(id)
+                    try {
+                        deletePhotoFile(item.photoUri)
+                    } catch (ignored: Exception) {
+                    }
+                    res.deleteId = id
+                    res.changed = true
+                } catch (ignored: Exception) {
+                }
+            }
+            "photo-chunk" -> {
+                if (!pair.isPaired() || from != pair.partnerId()) return
+                try {
+                    val d = PairStore.flatMap(dataRaw)
+                    val id = d["id"] ?: return
+                    val idx = d["idx"]?.toIntOrNull() ?: return
+                    val total = d["total"]?.toIntOrNull() ?: return
+                    val chunk = d["chunk"] ?: return
+                    if (total <= 0 || total > 150 || idx < 0 || idx >= total) return
+                    if (chunk.length > 5000) return
+                    val item = store.byId(id) ?: return
+                    if (!item.isForMe(pair.accountId)) return
+                    try {
+                        prefsPut(pair.k("pchunk_${id}_$idx"), chunk)
+                        prefsPut(pair.k("pchunk_total_$id"), total.toString())
+                    } catch (ignored: Exception) {
+                        return
+                    }
+                    // Check completeness.
+                    var have = 0
+                    for (i in 0 until total) {
+                        try {
+                            if ((prefsGet(pair.k("pchunk_${id}_$i") ) ?: "").isNotEmpty()) have++
+                        } catch (ignored: Exception) {
+                        }
+                    }
+                    if (have == total) {
+                        val sb = StringBuilder()
+                        for (i in 0 until total) {
+                            sb.append(prefsGet(pair.k("pchunk_${id}_$i")) ?: "")
+                        }
+                        val b64 = sb.toString()
+                        try {
+                            val name = savePhotoB64(b64)
+                            if (name != null && name.isNotEmpty()) {
+                                // Drop old photo file if replaced.
+                                val old = item.photoUri
+                                item.photoUri = name
+                                store.addOrUpdate(item)
+                                if (old.isNotEmpty() && old != name) {
+                                    try {
+                                        deletePhotoFile(old)
+                                    } catch (ignored: Exception) {
+                                    }
+                                }
+                                res.changed = true
+                            }
+                        } catch (ignored: Exception) {
+                        }
+                        // Cleanup chunks.
+                        try {
+                            for (i in 0 until total) prefsPut(pair.k("pchunk_${id}_$i"), "")
+                            prefsPut(pair.k("pchunk_total_$id"), "")
+                        } catch (ignored: Exception) {
+                        }
+                    }
+                } catch (ignored: Exception) {
                 }
             }
             "unpair-request" -> {

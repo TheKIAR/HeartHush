@@ -135,9 +135,20 @@ class EventStore(dir: String, name: String = "events.json") {
                 e.senderId = item.senderId
                 e.forPartner = item.forPartner
                 e.delivered = item.delivered
+                if (item.deliveredAtSec > e.deliveredAtSec) e.deliveredAtSec = item.deliveredAtSec
+                if (item.seenAtSec > e.seenAtSec) e.seenAtSec = item.seenAtSec
+                if (item.updatedAtSec > e.updatedAtSec) e.updatedAtSec = item.updatedAtSec
                 e.replyMessage = item.replyMessage
-                e.replyThread = item.replyThread
-                e.photoUri = item.photoUri
+                // Preserve conversation on edit sync: merge instead of overwrite
+                // when incoming thread is older/smaller.
+                if (item.replyThread.length >= e.replyThread.length) {
+                    e.replyThread = item.replyThread
+                } else {
+                    e.mergeThread(item.replyThread)
+                }
+                // Don't wipe a local photo with an empty incoming one (sender
+                // without photo re-sending must not clear receiver's image).
+                if (item.photoUri.isNotEmpty()) e.photoUri = item.photoUri
                 save()
                 return
             }

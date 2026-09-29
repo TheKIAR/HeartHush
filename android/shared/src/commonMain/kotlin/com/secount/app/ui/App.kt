@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import com.secount.app.logic.BackupCrypto
 import com.secount.app.logic.EventItem
 import com.secount.app.logic.EventStore
 import com.secount.app.logic.PairStore
@@ -78,6 +79,8 @@ import com.secount.app.logic.PinLock
 import com.secount.app.logic.SyncEngine
 import com.secount.app.logic.alarmBeep
 import com.secount.app.logic.alarmStop
+import com.secount.app.logic.biometricAuthenticate
+import com.secount.app.logic.biometricAvailable
 import com.secount.app.logic.copyToClipboard
 import com.secount.app.logic.deletePhotoFile
 import com.secount.app.logic.getClipboardText
@@ -85,6 +88,7 @@ import com.secount.app.logic.loadPhotoBitmap
 import com.secount.app.logic.notifySecret
 import com.secount.app.logic.nowSec
 import com.secount.app.logic.openUrl
+import com.secount.app.logic.photoToB64
 import com.secount.app.logic.pickPhotoFile
 import com.secount.app.logic.platformDataDir
 import com.secount.app.logic.prefsGet
@@ -231,6 +235,8 @@ fun App() {
     var langPref by remember { mutableStateOf(prefsGet(LANG_KEY) ?: "System") }
     var crashReport by remember { mutableStateOf<String?>(null) }
     var updateInfo by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // Mine = countdowns I created. Inbox = partner surprises (D-day only, vanish after).
+    var mainTab by remember { mutableStateOf("Mine") }
     val shownSecrets = remember { mutableSetOf<String>() }
 
     val effLang = if (langPref == "System") systemLanguage() else langPref
@@ -310,6 +316,18 @@ fun App() {
                         }
                     }
                 }
+                if (res.deleteId != null) {
+                    // Partner deleted a shared countdown — close it if open.
+                    try {
+                        if (secretOf?.id == res.deleteId) secretOf = null
+                        if (alarmOf?.id == res.deleteId) alarmOf = null
+                        if (editing?.id == res.deleteId) editing = null
+                    } catch (ignored: Exception) {
+                    }
+                }
+                if (res.seenId != null) {
+                    // Partner saw my message — receipts display updates on refresh.
+                }
                 if (res.offline) notice = "Offline — will retry automatically."
             } finally {
                 syncing = false
@@ -341,13 +359,22 @@ fun App() {
                 }
             } catch (ignored: Exception) {
             }
+            // Instant sync on resume (set by MainActivity.onResume).
+            try {
+                if (prefsGet("secount_need_sync") == "1") {
+                    prefsPut("secount_need_sync", "")
+                    doSync()
+                }
+            } catch (ignored: Exception) {
+            }
         }
     }
-    // online sync every 25s when linked, every 8s while waiting to pair
+    // online sync every 15s when linked (reply push reliability),
+    // every 8s while waiting to pair
     LaunchedEffect(Unit) {
         doSync()
         while (true) {
-            delay(if (pair.isPaired()) 25_000 else 8_000)
+            delay(if (pair.isPaired()) 15_000 else 8_000)
             doSync()
         }
     }
@@ -363,12 +390,24 @@ fun App() {
     val myId = pair.accountId
     @Suppress("UNUSED_EXPRESSION")
     storeVer
-    val shown = remember(storeVer, query, filter, sort) {
+    // Inbox count: partner surprises due today (vanish after the day).
+    val inboxList = remember(storeVer) {
+        val t = LocalDate.now()
+        store.sortedByNext(t).filter { e -> e.isForMe(myId) && e.isDueToday(t) }
+    }
+    val shown = remember(storeVer, query, filter, sort, mainTab) {
         val t = LocalDate.now()
         var list = store.sortedByNext(t).filter { e ->
-            // Partner secrets stay hidden on the receiver until D-day: the
-            // receiver cannot see, open or edit them before zero.
-            if (e.isForMe(myId) && !e.isDueToday(t)) return@filter false
+            if (mainTab == "Inbox") {
+                // Separate inbox: only partner messages due today.
+                // Main screen never shows them; after the day they vanish.
+                if (!e.isForMe(myId) || !e.isDueToday(t)) return@filter false
+            } else {
+                // Mine tab: only my countdowns (sent + personal).
+                // Partner-created items never appear here.
+                if (e.isForMe(myId)) return@filter false
+                if (e.isForMe(myId) && !e.isDueToday(t)) return@filter false
+            }
             if (calDay != null && viewMode == "Calendar") {
                 val match = if (e.effectiveRepeat() == "once") e.date == calDay
                 else e.nextOccurrence(t) == calDay || e.isDueToday(calDay!!)
@@ -653,6 +692,22 @@ fun App() {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
+                        onClick = { mainTab = "Mine" },
+                        modifier = Modifier.weight(1f)
+                    ) { Text((if (mainTab == "Mine") "● " else "○ ") + "♥ Mine") }
+                    OutlinedButton(
+                        onClick = { mainTab = "Inbox" },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        val n = inboxList.size
+                        Text((if (mainTab == "Inbox") "● " else "○ ") + if (n > 0) "💌 Inbox ($n)" else "💌 Inbox")
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
                         onClick = { viewMode = "List"; calDay = null },
                         modifier = Modifier.weight(1f)
                     ) { Text((if (viewMode == "List") "● " else "○ ") + Lang.t("viewList")) }
@@ -711,31 +766,40 @@ fun App() {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        Text("♥", fontSize = 44.sp)
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            if (query.isNotBlank() || filter != "All") Lang.t("emptyNomatch")
-                            else Lang.t("emptyNew"),
-                            fontSize = 14.sp
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Button(onClick = {
-                            val item = EventItem()
-                            item.date = LocalDate.now().plusDays(7)
-                            item.senderId = myId
-                            item.forPartner = pair.isPaired()
-                            editing = item
-                            editIsNew = true
-                        }) { Text(Lang.t("newBtn")) }
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = {
-                            sample(store, myId, "Birthday 🎂", 14, "Birthday", "🎂", "#FFB020", "Cake, friends and music!", true)
-                            sample(store, myId, "Final Exams 🎓", 30, "Exam", "🎓", "#22C4A8", "One chapter a day keeps stress away.", true)
-                            sample(store, myId, "Android App Launch 🚀", 60, "App Release", "🚀", "#7C6CFF", "Release v2.0 to the Play Store.", false)
-                            sample(store, myId, "Beach Trip ✈", 90, "Trip", "✈", "#38BDF8", "Sunscreen, playlists, passports.", false)
-                            sample(store, myId, "Wedding Day 💖", 120, "Wedding", "💖", "#F472B6", "The big day!", true)
-                            refresh()
-                        }) { Text(Lang.t("samplesBtn")) }
+                        if (mainTab == "Inbox") {
+                            Text("💌", fontSize = 44.sp)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "No messages today. Partner surprises appear here on D-day, then vanish after the day ends. Yearly surprises return each year.",
+                                fontSize = 14.sp
+                            )
+                        } else {
+                            Text("♥", fontSize = 44.sp)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                if (query.isNotBlank() || filter != "All") Lang.t("emptyNomatch")
+                                else Lang.t("emptyNew"),
+                                fontSize = 14.sp
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = {
+                                val item = EventItem()
+                                item.date = LocalDate.now().plusDays(7)
+                                item.senderId = myId
+                                item.forPartner = pair.isPaired()
+                                editing = item
+                                editIsNew = true
+                            }) { Text(Lang.t("newBtn")) }
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(onClick = {
+                                sample(store, myId, "Birthday 🎂", 14, "Birthday", "🎂", "#FFB020", "Cake, friends and music!", true)
+                                sample(store, myId, "Final Exams 🎓", 30, "Exam", "🎓", "#22C4A8", "One chapter a day keeps stress away.", true)
+                                sample(store, myId, "Android App Launch 🚀", 60, "App Release", "🚀", "#7C6CFF", "Release v2.0 to the Play Store.", false)
+                                sample(store, myId, "Beach Trip ✈", 90, "Trip", "✈", "#38BDF8", "Sunscreen, playlists, passports.", false)
+                                sample(store, myId, "Wedding Day 💖", 120, "Wedding", "💖", "#F472B6", "The big day!", true)
+                                refresh()
+                            }) { Text(Lang.t("samplesBtn")) }
+                        }
                     }
                 } else {
                     LazyColumn(Modifier.weight(1f).padding(horizontal = 8.dp)) {
@@ -807,12 +871,39 @@ fun App() {
                 EditDialog(
                     item, editIsNew, pair,
                     onSave = { saved, send ->
+                        try {
+                            saved.touchUpdated(nowSec())
+                        } catch (ignored: Exception) {
+                        }
                         store.addOrUpdate(saved)
-                        if (send) scope.launch { engine.sendCountdown(saved) }
+                        if (send) scope.launch {
+                            engine.sendCountdown(saved)
+                            // Photo sync: queue compressed thumbnail chunks.
+                            try {
+                                if (saved.photoUri.isNotEmpty()) {
+                                    val b64 = try { photoToB64(saved.photoUri) } catch (e: Exception) { null }
+                                    if (b64 != null && b64.isNotEmpty()) {
+                                        engine.queuePhoto(saved.id, b64)
+                                        // Trigger immediate chunk send via normal sync path.
+                                        try { engine.sendCountdown(saved) } catch (ignored: Exception) { }
+                                    }
+                                }
+                            } catch (ignored: Exception) {
+                            }
+                        }
                         editing = null
                         refresh()
                     },
-                    onDelete = { store.delete(it.id); editing = null; refresh() },
+                    onDelete = { del ->
+                        val wasShared = del.forPartner && del.isMine(myId)
+                        if (del.photoUri.isNotEmpty()) {
+                            try { deletePhotoFile(del.photoUri) } catch (ignored: Exception) { }
+                        }
+                        store.delete(del.id)
+                        if (wasShared) scope.launch { try { engine.sendDelete(del.id) } catch (ignored: Exception) { } }
+                        editing = null
+                        refresh()
+                    },
                     onCancel = { editing = null }
                 )
             }
@@ -912,18 +1003,36 @@ fun App() {
         }
         if (showExport) {
             val json = remember(showExport, storeVer) { store.exportJson() }
+            var encPass by remember { mutableStateOf("") }
+            val outText = remember(json, encPass) {
+                if (encPass.isNotEmpty()) {
+                    try { BackupCrypto.encrypt(encPass, json) } catch (e: Exception) { json }
+                } else json
+            }
             AlertDialog(
                 onDismissRequest = { showExport = false },
                 title = { Text(Lang.t("exportBackup")) },
                 text = {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
-                        Text(json, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                        OutlinedTextField(
+                            encPass, { encPass = it },
+                            label = { Text("Password (optional — encrypts backup)") },
+                            singleLine = true
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            if (encPass.isNotEmpty()) "🔒 Encrypted — only readable with this password."
+                            else "No password — plain JSON (secrets readable).",
+                            fontSize = 12.sp
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(outText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = {
                         try {
-                            copyToClipboard(json)
+                            copyToClipboard(outText)
                         } catch (ignored: Exception) {
                         }
                         showExport = false
@@ -936,21 +1045,44 @@ fun App() {
         }
         if (showImport) {
             var pasted by remember { mutableStateOf("") }
+            var decPass by remember { mutableStateOf("") }
             var imported by remember { mutableStateOf<Int?>(null) }
+            var importErr by remember { mutableStateOf<String?>(null) }
             AlertDialog(
                 onDismissRequest = { showImport = false; refresh() },
                 title = { Text("Import backup") },
                 text = {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
-                        Text("Paste a backup JSON array exported from Secount.", fontSize = 12.sp)
+                        Text("Paste a backup JSON array (or 🔒 encrypted backup + password).", fontSize = 12.sp)
                         Spacer(Modifier.height(6.dp))
-                        OutlinedTextField(pasted, { pasted = it; imported = null }, label = { Text("Backup JSON") })
+                        OutlinedTextField(pasted, { pasted = it; imported = null; importErr = null }, label = { Text("Backup JSON / encrypted") })
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(decPass, { decPass = it }, label = { Text("Password (if encrypted)") }, singleLine = true)
                         if (imported != null) Text("Imported $imported countdown(s).", fontSize = 12.sp)
+                        if (importErr != null) Text(importErr!!, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        imported = store.importJson(pasted)
+                        try {
+                            var txt = pasted.trim()
+                            if (txt.startsWith("ENC1.")) {
+                                if (decPass.isEmpty()) {
+                                    importErr = "Encrypted backup needs its password."
+                                    return@TextButton
+                                }
+                                val dec = BackupCrypto.decrypt(decPass, txt)
+                                if (dec == null) {
+                                    importErr = "Wrong password or corrupt backup."
+                                    return@TextButton
+                                }
+                                txt = dec
+                            }
+                            imported = store.importJson(txt)
+                            importErr = null
+                        } catch (e: Exception) {
+                            importErr = "Import failed."
+                        }
                         refresh()
                     }) { Text(Lang.t("importBackup")) }
                 },
@@ -968,6 +1100,15 @@ fun App() {
             var reply by remember(item.id) { mutableStateOf("") }
             var sending by remember(item.id) { mutableStateOf(false) }
             val forMe = live.isForMe(myId)
+            // Seen receipt: when the receiver opens, tell the sender.
+            LaunchedEffect(opened, live.id) {
+                if (opened && forMe) {
+                    try {
+                        scope.launch { try { engine.sendSeen(live.id) } catch (ignored: Exception) { } }
+                    } catch (ignored: Exception) {
+                    }
+                }
+            }
             AlertDialog(
                 onDismissRequest = { secretOf = null },
                 title = {
@@ -1107,10 +1248,11 @@ fun App() {
             )
         }
         confirmDelete?.let { item ->
+            val wasShared = item.forPartner && item.isMine(myId)
             AlertDialog(
                 onDismissRequest = { confirmDelete = null },
                 title = { Text(Lang.t("delete")) },
-                text = { Text("Delete '${item.title}'?" + if (item.forPartner) "\n(This removes it on this device only.)" else "") },
+                text = { Text("Delete '${item.title}'?" + if (wasShared) "\n(Partner's copy is removed too on next sync.)" else "") },
                 confirmButton = {
                     TextButton(onClick = {
                         undoItem = item.copyFromJson()
@@ -1121,6 +1263,7 @@ fun App() {
                             }
                         }
                         store.delete(item.id)
+                        if (wasShared) scope.launch { try { engine.sendDelete(item.id) } catch (ignored: Exception) { } }
                         confirmDelete = null
                         refresh()
                     }) { Text(Lang.t("yes")) }
@@ -1210,6 +1353,23 @@ private fun PinGate(pin: PinLock, themeName: String, darkMode: String, onUnlock:
                 }
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = { tryUnlock() }, enabled = lockedSecs <= 0) { Text(Lang.t("unlock")) }
+                if (lockedSecs <= 0 && biometricAvailable()) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = {
+                        try {
+                            biometricAuthenticate { ok ->
+                                if (ok) {
+                                    try {
+                                        pin.unlockViaBiometric()
+                                        onUnlock()
+                                    } catch (ignored: Exception) {
+                                    }
+                                }
+                            }
+                        } catch (ignored: Exception) {
+                        }
+                    }) { Text("Use fingerprint / face") }
+                }
             }
         }
     }
@@ -1607,7 +1767,15 @@ private fun EventCard(
                         e.shortCountdown(today).uppercase()
                     )
                     if (forMe) bits.add("🎁 FOR YOU")
-                    else if (mine && e.forPartner) bits.add(if (e.delivered) "✉ DELIVERED" else "✉ TO PARTNER")
+                    else if (mine && e.forPartner) {
+                        if (e.seenAtSec > 0) {
+                            val s = try { e.receiptLabel(e.seenAtSec) } catch (ignored: Exception) { "" }
+                            bits.add(if (s.isNotEmpty()) "👁 SEEN • $s" else "👁 SEEN")
+                        } else if (e.delivered) {
+                            val d = try { e.receiptLabel(e.deliveredAtSec) } catch (ignored: Exception) { "" }
+                            bits.add(if (d.isNotEmpty()) "✉ DELIVERED • $d" else "✉ DELIVERED")
+                        } else bits.add("✉ TO PARTNER")
+                    }
                     if (e.hasSecret() && !forMe) bits.add("SECRET ARMED")
                     try {
                         val rc = e.threadEntries().size
@@ -1701,8 +1869,19 @@ private fun EditDialog(
     var category by remember { mutableStateOf(initial.displayCategory()) }
     var icon by remember { mutableStateOf(initial.displayIcon()) }
     var date by remember { mutableStateOf(initial.date) }
-    var hourS by remember { mutableStateOf(initial.hour.coerceIn(0, 23).toString()) }
+    // AM/PM entry: internal storage stays 24h.
+    val initH24 = initial.hour.coerceIn(0, 23)
+    var hour12S by remember {
+        mutableStateOf(
+            run {
+                var h12 = initH24 % 12
+                if (h12 == 0) h12 = 12
+                h12.toString()
+            }
+        )
+    }
     var minS by remember { mutableStateOf(initial.minute.coerceIn(0, 59).toString().padStart(2, '0')) }
+    var ampmSel by remember { mutableStateOf(if (initH24 < 12) "AM" else "PM") }
     var repeatSel by remember {
         mutableStateOf(
             when (initial.effectiveRepeat()) {
@@ -1761,7 +1940,8 @@ private fun EditDialog(
                 DropDown(Lang.t("icon"), EventItem.ICON_PRESETS, icon, { icon = it })
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(onClick = { showDate = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("${Lang.t("targetDate")}: $date • ${hourS.padStart(2, '0')}:${minS.padStart(2, '0')}")
+                    val h12d = hour12S.toIntOrNull() ?: 12
+                    Text("${Lang.t("targetDate")}: $date • $h12d:${minS.padStart(2, '0')} $ampmSel")
                 }
                 if (showDate) {
                     val state = rememberDatePickerState(
@@ -1783,13 +1963,14 @@ private fun EditDialog(
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
-                        hourS, { hourS = it.filter { c -> c.isDigit() }.take(2) },
-                        label = { Text(Lang.t("hour")) }, singleLine = true, modifier = Modifier.weight(1f)
+                        hour12S, { hour12S = it.filter { c -> c.isDigit() }.take(2) },
+                        label = { Text("${Lang.t("hour")} (1–12)") }, singleLine = true, modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
                         minS, { minS = it.filter { c -> c.isDigit() }.take(2) },
                         label = { Text(Lang.t("min")) }, singleLine = true, modifier = Modifier.weight(1f)
                     )
+                    DropDown("AM/PM", listOf("AM", "PM"), ampmSel, { ampmSel = it }, modifier = Modifier.weight(1f))
                 }
                 if (timeErr != null) Text(timeErr!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                 Spacer(Modifier.height(6.dp))
@@ -1877,12 +2058,14 @@ private fun EditDialog(
                     titleErr = true
                     return@TextButton
                 }
-                val h = hourS.toIntOrNull()
+                val h12 = hour12S.toIntOrNull()
                 val m = minS.toIntOrNull()
-                if (h == null || h !in 0..23 || m == null || m !in 0..59) {
-                    timeErr = "Hour 0–23, minute 0–59."
+                if (h12 == null || h12 !in 1..12 || m == null || m !in 0..59) {
+                    timeErr = "Hour 1–12, minute 0–59."
                     return@TextButton
                 }
+                var h = h12 % 12
+                if (ampmSel == "PM") h += 12
                 var hex = customHex.trim()
                 if (hex.isNotEmpty()) {
                     if (!hex.startsWith("#")) hex = "#$hex"

@@ -77,6 +77,16 @@ class PinLock {
         unlocked = false
     }
 
+    /** OS biometric succeeded — trust it and unlock (no PIN needed). */
+    fun unlockViaBiometric(): Boolean {
+        unlocked = true
+        try {
+            clearFailures()
+        } catch (ignored: Exception) {
+        }
+        return true
+    }
+
     /** Called when the OS sends the app to Home/background: require PIN on return, no timer otherwise. */
     fun lockOnHome() {
         unlocked = false

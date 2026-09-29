@@ -58,12 +58,26 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         try {
+            AppCtx.activity = this
+        } catch (ignored: Exception) {
+        }
+        try {
             SecountWidget.requestRefresh(this)
+        } catch (ignored: Exception) {
+        }
+        // Instant sync on return (reply push reliability) — App polls this.
+        try {
+            getSharedPreferences("secount", MODE_PRIVATE)
+                .edit().putString("secount_need_sync", "1").apply()
         } catch (ignored: Exception) {
         }
     }
 
     override fun onPause() {
+        try {
+            AppCtx.activity = null
+        } catch (ignored: Exception) {
+        }
         super.onPause()
         // User rule: lock only when going to Home/background, never on a timer.
         // App.kt polls this flag once per second and shows the PIN gate on return.

@@ -10,6 +10,8 @@ object AppCtx {
     var app: Context? = null
     /** Set by MainActivity: used to launch the gallery picker. */
     var photoLauncher: ((String) -> Unit)? = null
+    /** Foreground activity for framework BiometricPrompt (set in onResume). */
+    var activity: android.app.Activity? = null
 }
 
 private fun photosDir(): java.io.File {
@@ -423,6 +425,118 @@ actual fun notifySecret(title: String, text: String) {
             // Notification permission not granted — in-app card still shows.
         }
     } catch (ignored: Exception) {
+    }
+}
+
+actual fun biometricAvailable(): Boolean {
+    return try {
+        if (android.os.Build.VERSION.SDK_INT < 28) return false
+        val ctx = AppCtx.app ?: return false
+        val km = ctx.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+        if (!km.isDeviceSecure) return false
+        val bm = ctx.getSystemService("biometric") ?: return true
+        try {
+            val m = bm.javaClass.getMethod("canAuthenticate")
+            val r = (m.invoke(bm) as? Int) ?: return true
+            // BIOMETRIC_SUCCESS == 0
+            r == 0
+        } catch (e: Exception) {
+            true
+        }
+    } catch (e: Exception) {
+        false
+    }
+}
+
+actual fun biometricAuthenticate(onResult: (Boolean) -> Unit) {
+    try {
+        if (android.os.Build.VERSION.SDK_INT < 28) {
+            onResult(false)
+            return
+        }
+        val act = AppCtx.activity ?: run { onResult(false); return }
+        val exec = act.mainExecutor
+        val prompt = android.hardware.biometrics.BiometricPrompt.Builder(act)
+            .setTitle("Unlock Secount")
+            .setSubtitle("Use fingerprint / face")
+            .setNegativeButton("Use PIN", exec, android.content.DialogInterface.OnClickListener { _, _ ->
+                try { onResult(false) } catch (ignored: Exception) { }
+            })
+            .build()
+        val cancel = android.os.CancellationSignal()
+        prompt.authenticate(
+            cancel, exec,
+            object : android.hardware.biometrics.BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: android.hardware.biometrics.BiometricPrompt.AuthenticationResult?) {
+                    try { onResult(true) } catch (ignored: Exception) { }
+                }
+                override fun onAuthenticationFailed() {
+                    // stay open; user can retry or use PIN
+                }
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                    try { onResult(false) } catch (ignored: Exception) { }
+                }
+            }
+        )
+    } catch (e: Exception) {
+        try { onResult(false) } catch (ignored: Exception) { }
+    }
+}
+
+actual fun photoToB64(name: String): String? {
+    return try {
+        if (name.isBlank()) return null
+        val ctx = AppCtx.app ?: return null
+        val f = if (name.contains("/") || name.contains("\\")) java.io.File(name) else java.io.File(photosDir(), name)
+        if (!f.exists()) return null
+        val opts = android.graphics.BitmapFactory.Options()
+        opts.inJustDecodeBounds = true
+        android.graphics.BitmapFactory.decodeFile(f.absolutePath, opts)
+        var sample = 1
+        while ((opts.outWidth / sample) > 600 || (opts.outHeight / sample) > 600) sample *= 2
+        val o2 = android.graphics.BitmapFactory.Options()
+        o2.inSampleSize = sample
+        var bmp = android.graphics.BitmapFactory.decodeFile(f.absolutePath, o2) ?: return null
+        // Scale precisely to max 600px.
+        val w = bmp.width
+        val h = bmp.height
+        val scale = minOf(1f, 600f / maxOf(w, h).toFloat())
+        if (scale < 1f) {
+            val nw = (w * scale).toInt().coerceAtLeast(1)
+            val nh = (h * scale).toInt().coerceAtLeast(1)
+            val scaled = android.graphics.Bitmap.createScaledBitmap(bmp, nw, nh, true)
+            if (scaled != bmp) {
+                try { bmp.recycle() } catch (ignored: Exception) { }
+                bmp = scaled
+            }
+        }
+        val baos = java.io.ByteArrayOutputStream()
+        bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, baos)
+        try { bmp.recycle() } catch (ignored: Exception) { }
+        val bytes = baos.toByteArray()
+        if (bytes.size > 120000) return null
+        java.util.Base64.getEncoder().encodeToString(bytes)
+    } catch (e: Exception) {
+        null
+    }
+}
+
+actual fun savePhotoB64(b64: String): String? {
+    return try {
+        if (b64.isBlank() || b64.length > 400000) return null
+        val bytes = java.util.Base64.getDecoder().decode(b64)
+        if (bytes.isEmpty() || bytes.size > 300000) return null
+        // Validate it's an image.
+        val opts = android.graphics.BitmapFactory.Options()
+        opts.inJustDecodeBounds = true
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        if (opts.outWidth <= 0 || opts.outHeight <= 0) return null
+        val name = "p" + System.currentTimeMillis() + ".jpg"
+        val out = java.io.File(photosDir(), name)
+        out.outputStream().use { it.write(bytes) }
+        name
+    } catch (e: Exception) {
+        null
     }
 }
 

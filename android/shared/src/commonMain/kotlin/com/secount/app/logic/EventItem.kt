@@ -55,6 +55,15 @@ class EventItem {
     /** True once the partner has opened it at zero (receipt). */
     var delivered: Boolean = false
 
+    /** Epoch sec when delivered receipt arrived (0 = unknown). */
+    var deliveredAtSec: Long = 0L
+
+    /** Epoch sec when partner opened/read the message (seen receipt). */
+    var seenAtSec: Long = 0L
+
+    /** Last edit epoch sec — prevents stale overwrites on synced edit. */
+    var updatedAtSec: Long = 0L
+
     /** Reply thread on a shared secret (receiver answers the sender). */
     var replyMessage: String = ""
 
@@ -209,7 +218,32 @@ class EventItem {
         return "$d days left"
     }
 
-    fun timeLabel(): String = "%02d:%02d".format(hour.coerceIn(0, 23), minute.coerceIn(0, 59))
+    /** 12-hour AM/PM label, e.g. "3:05 PM". Internal storage stays 24h. */
+    fun timeLabel(): String {
+        val h = hour.coerceIn(0, 23)
+        val m = minute.coerceIn(0, 59)
+        val ampm = if (h < 12) "AM" else "PM"
+        var h12 = h % 12
+        if (h12 == 0) h12 = 12
+        return "$h12:${if (m < 10) "0$m" else "$m"} $ampm"
+    }
+
+    /** Short epoch-sec -> "3:05 PM • 12 Sep" style for receipts. */
+    fun receiptLabel(epochSec: Long): String {
+        if (epochSec <= 0) return ""
+        return try {
+            val dt = java.time.Instant.ofEpochSecond(epochSec)
+                .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
+            val h = dt.hour
+            val ampm = if (h < 12) "AM" else "PM"
+            var h12 = h % 12
+            if (h12 == 0) h12 = 12
+            val mm = if (dt.minute < 10) "0${dt.minute}" else "${dt.minute}"
+            "$h12:$mm $ampm • ${dt.dayOfMonth} ${dt.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)}"
+        } catch (e: Exception) {
+            ""
+        }
+    }
 
     fun repeatLabel(): String = when (effectiveRepeat()) {
         "yearly" -> "yearly"
@@ -259,6 +293,36 @@ class EventItem {
         replyMessage = clean
     }
 
+    /** Merge another thread in (union, sorted by timestamp) — keeps replies on edit sync. */
+    fun mergeThread(other: String) {
+        if (other.isBlank()) return
+        val seen = threadEntries().map { Triple(it.first, it.second, it.third) }.toMutableSet()
+        for (line in other.lines()) {
+            val t = line.trim()
+            if (t.isEmpty()) continue
+            val p1 = t.indexOf('|')
+            if (p1 < 0) continue
+            val p2 = t.indexOf('|', p1 + 1)
+            if (p2 < 0) continue
+            val ts = t.substring(0, p1).toLongOrNull() ?: 0L
+            val who = t.substring(p1 + 1, p2)
+            val txt = t.substring(p2 + 1)
+            val triple = Triple(ts, who, txt)
+            if (seen.add(triple)) {
+                replyThread = if (replyThread.isBlank()) t else replyThread + "\n" + t
+                if (txt.isNotBlank()) replyMessage = txt
+            }
+        }
+        // Keep chronological order.
+        val sorted = threadEntries().sortedBy { it.first }
+        replyThread = sorted.joinToString("\n") { "${it.first}|${it.second}|${it.third}" }
+        if (sorted.isNotEmpty()) replyMessage = sorted.last().third
+    }
+
+    fun touchUpdated(atSec: Long) {
+        updatedAtSec = atSec
+    }
+
     fun toJson(): String {
         return "{\"id\":" + q(id) +
             ",\"title\":" + q(title) +
@@ -281,6 +345,9 @@ class EventItem {
             ",\"senderId\":" + q(senderId) +
             ",\"forPartner\":" + forPartner +
             ",\"delivered\":" + delivered +
+            ",\"deliveredAtSec\":" + deliveredAtSec +
+            ",\"seenAtSec\":" + seenAtSec +
+            ",\"updatedAtSec\":" + updatedAtSec +
             ",\"replyMessage\":" + q(replyMessage) +
             ",\"replyThread\":" + q(replyThread) +
             ",\"photoUri\":" + q(photoUri) +
@@ -352,6 +419,9 @@ class EventItem {
                         "senderId" -> e.senderId = JsonUtil.unquote(`val`)
                         "forPartner" -> e.forPartner = `val`.toBoolean()
                         "delivered" -> e.delivered = `val`.toBoolean()
+                        "deliveredAtSec" -> e.deliveredAtSec = JsonUtil.unquote(`val`).toLongOrNull() ?: (`val`.toLongOrNull() ?: 0L)
+                        "seenAtSec" -> e.seenAtSec = JsonUtil.unquote(`val`).toLongOrNull() ?: (`val`.toLongOrNull() ?: 0L)
+                        "updatedAtSec" -> e.updatedAtSec = JsonUtil.unquote(`val`).toLongOrNull() ?: (`val`.toLongOrNull() ?: 0L)
                         "replyMessage" -> e.replyMessage = JsonUtil.unquote(`val`)
                         "reply" -> e.replyMessage = JsonUtil.unquote(`val`)
                         "replyThread" -> e.replyThread = JsonUtil.unquote(`val`)

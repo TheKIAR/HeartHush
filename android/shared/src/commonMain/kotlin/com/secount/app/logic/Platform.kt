@@ -51,3 +51,15 @@ expect fun openUrl(url: String)
 
 /** Push latest countdowns to the Android home widget snapshot (no-op on desktop). */
 expect fun widgetRefresh(eventsJson: String)
+
+/** True when biometric unlock (fingerprint/face) can be offered. */
+expect fun biometricAvailable(): Boolean
+
+/** Launch OS biometric prompt; callback true on success. No-op where unavailable. */
+expect fun biometricAuthenticate(onResult: (Boolean) -> Unit)
+
+/** Compressed base64 thumbnail for photo sync (null when missing/too big). */
+expect fun photoToB64(name: String): String?
+
+/** Save incoming photo base64; returns stored filename or null. */
+expect fun savePhotoB64(b64: String): String?

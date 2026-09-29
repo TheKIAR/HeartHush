@@ -357,4 +357,57 @@ actual fun widgetRefresh(eventsJson: String) {
     // No home-widget system on desktop; the window title covers glanceability.
 }
 
+actual fun biometricAvailable(): Boolean = false
+
+actual fun biometricAuthenticate(onResult: (Boolean) -> Unit) {
+    try { onResult(false) } catch (ignored: Exception) { }
+}
+
+actual fun photoToB64(name: String): String? {
+    return try {
+        if (name.isBlank()) return null
+        val f = if (name.contains("/") || name.contains("\\") || name.contains(":")) java.io.File(name)
+        else java.io.File(photosDir(), name)
+        if (!f.exists()) return null
+        var img = javax.imageio.ImageIO.read(f) ?: return null
+        val maxSide = maxOf(img.width, img.height)
+        if (maxSide > 600) {
+            val scale = 600.0 / maxSide
+            val nw = (img.width * scale).toInt().coerceAtLeast(1)
+            val nh = (img.height * scale).toInt().coerceAtLeast(1)
+            val scaled = java.awt.image.BufferedImage(nw, nh, java.awt.image.BufferedImage.TYPE_INT_RGB)
+            val g = scaled.createGraphics()
+            try {
+                g.drawImage(img.getScaledInstance(nw, nh, java.awt.Image.SCALE_SMOOTH), 0, 0, null)
+            } finally {
+                g.dispose()
+            }
+            img = scaled
+        }
+        val baos = java.io.ByteArrayOutputStream()
+        javax.imageio.ImageIO.write(img, "jpg", baos)
+        val bytes = baos.toByteArray()
+        if (bytes.size > 120000) return null
+        java.util.Base64.getEncoder().encodeToString(bytes)
+    } catch (e: Exception) {
+        null
+    }
+}
+
+actual fun savePhotoB64(b64: String): String? {
+    return try {
+        if (b64.isBlank() || b64.length > 400000) return null
+        val bytes = java.util.Base64.getDecoder().decode(b64)
+        if (bytes.isEmpty() || bytes.size > 300000) return null
+        val img = javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(bytes)) ?: return null
+        if (img.width <= 0 || img.height <= 0) return null
+        val name = "p" + System.currentTimeMillis() + ".jpg"
+        val out = java.io.File(photosDir(), name)
+        javax.imageio.ImageIO.write(img, "jpg", out)
+        name
+    } catch (e: Exception) {
+        null
+    }
+}
+
 private object SoundLock

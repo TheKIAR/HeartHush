@@ -1,99 +1,163 @@
 # Secount ♥ Countdown Studio
 
-**Se**cret + **Count**: secrets revealed only at zero, letter by letter.
+**Se**cret + **Count** — a modern countdown app where moments can stay private until zero.
 
-One app, two homes — **the exact same UI** on Windows and Android — for
-**any kind of countdown**: birthdays, exams, weddings, holidays, trips, work
-deadlines, app / game launches.
+Secount is a cross-platform **Kotlin + Compose Multiplatform** app for Windows and Android. The same shared UI and event model power both platforms.
 
-100% Kotlin, built with Compose Multiplatform: `android/shared` holds all logic
-plus every screen, `android/androidApp` is the APK entry point, and
-`android/desktopApp` is the Windows entry point. Same `events.json` schema on
-both, so files are interchangeable.
+> Birthdays • Exams • Weddings • Holidays • Trips • Work deadlines • App launches • Game launches • Private surprises
 
-## ✨ Features
+## ✨ Runtime preview
 
-- **Works for any occasion**: every countdown has a `category` (Birthday, Exam, Wedding,
-  Holiday, Trip, App Release, Game Launch, Work...), an emoji `icon`, and its own
-  `accent color`. Old event files load fine — missing fields get sensible defaults.
-- **Mine / Inbox tabs**: `♥ Mine` holds countdowns you created. `💌 Inbox` holds
-  partner surprises — they appear only on D-day, then vanish after the day ends.
-  Yearly surprises return each year (old secret shows unless a new one was sent).
-- **Modern Material cards**: category pill, `X days left`, secret-armed pill,
-  `💬 replies` pill, `✉ DELIVERED` / `👁 SEEN` with AM/PM timestamps,
-  progress bar, live monospaced countdown, per-card accent color.
-- **Search, filter** (All / Today / Next 7 days / Featured / With secret / Past / To partner)
-  **and sort** (next / A–Z / biggest / newest), List/Calendar views, live stats header.
-- **Create anything**: duplicate any countdown, per-countdown accent picker +
-  icon picker, photo attach, 12-hour AM/PM time entry. New countdowns default
-  `To partner` when linked (`Just me` kept as an option).
-- **Secret messages**: letter-by-letter reveal (`H` → `Hi` → …) with replay,
-  explicit OPEN step, photo included, `✉ Message` + `🎁 Secret` labelled.
-- **Conversation**: reply thread with `You` / `Partner` labels, auto-opens on
-  new reply, survives edits via thread merge.
-- **Online pairing**: connect two devices with 6-letter codes (+ QR / copy-paste).
-  Edits re-send versioned, deletes sync to both sides, offline replies/deletes/seens/photos retry.
-  Photos sync as encrypted 600px thumbnails. Disconnect needs both sides to agree.
-- **App PIN + biometric**: whole app sits behind a PIN (first run `1234`,
-  changeable, backoff lockout). Fingerprint/face unlock on Android. Locks only
-  on Home/background — never during photo picking, and drafts survive locking.
-- **Backup**: plain or password-encrypted (`ENC1…`) export/import.
+![Secount runtime screenshot](./assets/runtime-screenshot.png)
 
-## 🔐 PIN + Connect
+### 🎬 Actual runtime demo
 
-- First-run PIN is `1234`. Enter it to unlock. Use **PIN** to change it, lock now,
-  or use fingerprint/face where available.
-- Tap **Connect** to see your 6-letter code (+ QR / pairing text). Tell it to your
-  partner, enter THEIR code, and when both sides have entered each other's codes
-  you are linked.
-- Create with `Send to: To partner (...)` (default when linked) to send a countdown.
-  You keep the timer + 365-day yearly countdown, they see nothing until zero — then
-  they get a secret notification plus a sealed 🎁 card in **💌 Inbox** with OPEN MESSAGE.
-  The letter writes itself one character at a time. They can never edit your countdown,
-  only reply. `✉ TO PARTNER` / `✉ DELIVERED • 3:30 PM` / `👁 SEEN • …` shows receipts.
-- **Disconnect** only severs when both agree: one side requests, the other must
-  tap AGREE. Declining keeps you connected. Sever is re-announced for a few minutes
-  so both sides always end up disconnected together.
+![Secount desktop runtime demo](./assets/demo.gif)
 
-## ▶ Run on Windows (no install)
+The screenshot and GIF above are captured from the **running desktop application** by GitHub Actions — they are not mockups or static UI drawings.
 
-`Secount.exe` — run the installer, then launch Secount from the Start menu.
-No Java needed (runtime is bundled). Or double-click `run.bat` (it picks a
-Java 17+ runtime for you):
+## 💗 Why Secount?
+
+Secount combines a normal countdown with a private-message experience. You can create a countdown for anything, optionally arm a secret message, and reveal it only when the countdown reaches zero.
+
+### Core experience
+
+- **Modern Material UI** with soft surfaces, rounded cards and clear hierarchy.
+- **Valentine-first visual language** with a warm pink/rose palette, while keeping the interface clean and approachable.
+- **Live countdowns** with days, hours, minutes and seconds.
+- **Mine / Inbox** views for personal countdowns and partner surprises.
+- **Letter-style secret reveal** that writes the message character by character.
+- **Explicit OPEN MESSAGE step** before a secret is revealed.
+- **Replies and conversation threads** with You / Partner labels.
+- **Delivered / Seen receipts** with timestamps.
+- **Search, filters and sorting** for larger countdown collections.
+- **List and Calendar views**.
+- **Per-countdown categories, icons and accent colors**.
+- **Photo attachments** with synced thumbnails.
+- **6-letter pairing codes + QR / copy-paste pairing**.
+- **Offline retry and sync** for edits, replies, deletes and receipts.
+- **App PIN + biometric unlock** where supported.
+- **Backup and restore**, including optional encrypted backups.
+- **Windows + Android** from one shared Kotlin/Compose codebase.
+
+## 🔐 Private secret-message flow
+
+1. Create a countdown.
+2. Enable **Secret message at zero**.
+3. Write the private message.
+4. Keep using the app normally — the secret remains sealed.
+5. At zero, the recipient gets the secret-message prompt.
+6. **OPEN MESSAGE** starts the letter-style reveal.
+7. The recipient can reply inside the same conversation.
+
+The secret text is also automatically armed when text is entered, so accidentally forgetting the toggle does not leave the message behind as an ordinary public message.
+
+## 🤝 Partner pairing
+
+Two Secount installations can connect using a six-letter pairing code.
+
+- Share your code or QR payload.
+- Enter your partner's code.
+- Both sides confirm the connection.
+- Countdown edits and deletes sync between paired devices.
+- Partner surprises remain hidden until their target day.
+- Disconnect requires agreement from both sides.
+
+## 🎨 UI & themes
+
+The default **Valentine** theme is designed to feel romantic without looking like a novelty card:
+
+- Soft warm background
+- High-contrast typography
+- Rounded Material surfaces
+- Accent-colored countdown identity
+- Compact status pills
+- Clear primary actions
+- Dark-mode support
+- Additional themes: Midnight Android, Ocean, Sunset, Forest, Lavender and Porcelain
+
+## 📱 Platforms
+
+### Windows
+
+`Secount.exe` is the packaged Windows application. The bundled runtime means users do not need to install Java separately.
+
+You can also run the desktop JAR with:
 
 ```bat
 run.bat
 ```
 
-> Do **not** double-click `Secount.jar` directly if your `.jar` files are
-> associated with an old Java 8 — it will fail with
-> `UnsupportedClassVersionError`. `run.bat` avoids that. `Secount.jar`
-> shows the exact same UI as the Android app, packaged with everything it needs.
+### Android
 
-## 📱 Run on Android (test APK)
+`Secount-debug.apk` is the test APK and requires Android 8.0 / API 26 or newer.
 
-`Secount-debug.apk` — copy it to your phone, open it, allow "install unknown
-apps" once. Requires Android 8.0 (API 26) or newer.
+## 🛠️ Tech stack
 
-## 🛠 Build
+- **Kotlin**
+- **Jetpack Compose / Material 3**
+- **Compose Multiplatform**
+- **Gradle**
+- **Android**
+- **Desktop JVM**
+- **ZXing** for QR generation
+- **GitHub Actions** for tests, builds and runtime-media capture
 
-Windows app (same UI as the APK):
+## 🧱 Project structure
+
+```text
+android/
+├── shared/       # Shared logic + Compose UI
+├── androidApp/   # Android entry point
+└── desktopApp/   # Windows / desktop entry point
+```
+
+The shared module contains the event model, storage, pairing/sync logic, PIN protection and the complete Compose UI.
+
+## ▶ Build locally
+
+### Windows desktop
 
 ```bat
 build.bat
 ```
 
-Builds `Secount.jar` + `Secount.exe` (same UI as the APK).
+This builds the desktop JAR and Windows executable.
 
-Android APK:
+### Android
 
 ```bat
 android\build-apk.bat
 ```
 
-Both reuse your local Android SDK and auto-download JDK 17 + Gradle on first run.
-Shared-logic tests: `gradle -p android :shared:desktopTest`.
+### Shared tests
 
-GitHub Actions (Windows runner) runs the tests and rebuilds
-`Secount.jar` + `Secount.exe` + `Secount-debug.apk` on every push
-to `main`.
+```bat
+gradle -p android :shared:desktopTest
+```
+
+## ⚙️ Continuous integration
+
+GitHub Actions automatically:
+
+- Runs the shared-logic test suite.
+- Builds `Secount.jar`.
+- Builds `Secount.exe`.
+- Builds `Secount-debug.apk`.
+- Captures an **actual desktop runtime screenshot**.
+- Captures an **actual animated GIF demo**.
+- Commits updated runtime media back to the repository.
+
+## 👨‍💻 Author
+
+**Md. Ragib Ashhab**  
+CSE Student • Java / Python • AI • Computer Graphics • Software Projects
+
+- 🌐 Portfolio: https://ragibashhab.netlify.app/
+- 🔗 Linktree: https://linktr.ee/RagibAshhab
+- 💼 LinkedIn: https://www.linkedin.com/in/md-ragib-ashhab-768a19240/
+- 🐙 GitHub: https://github.com/TheKIAR
+
+---
+
+*Building practical software, turning coursework into projects, and improving one release at a time.*

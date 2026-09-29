@@ -1699,11 +1699,8 @@ private fun MappedDropDown(
 private fun LetterReveal(
     text: String,
     key: String,
-    wordDelayMs: Long = 320L
+    charDelayMs: Long = 70L
 ) {
-    val words = remember(key) {
-        text.split(Regex("\\s+")).filter { it.isNotEmpty() }
-    }
     var shown by remember(key) { mutableStateOf(0) }
     var replayTick by remember(key) { mutableStateOf(0) }
     @Suppress("UNUSED_EXPRESSION")
@@ -1712,15 +1709,15 @@ private fun LetterReveal(
         shown = 0
         // Small pause before the letter starts writing.
         delay(400)
-        while (shown < words.size) {
-            delay(wordDelayMs)
+        while (shown < text.length) {
+            delay(charDelayMs)
             shown++
         }
     }
-    val done = shown >= words.size
+    val done = shown >= text.length
     Column {
         Text(
-            if (shown <= 0) "✒…" else words.take(shown).joinToString(" ") + if (done) "" else " ▍",
+            if (shown <= 0) "✒…" else text.take(shown) + if (done) "" else "▍",
             fontSize = 15.sp
         )
         Spacer(Modifier.height(4.dp))
@@ -1728,7 +1725,7 @@ private fun LetterReveal(
             TextButton(
                 onClick = { replayTick++ },
                 enabled = done
-            ) { Text(if (done) "↻ Replay" else "${shown}/${words.size}") }
+            ) { Text(if (done) "↻ Replay" else "$shown/${text.length}") }
         }
     }
 }

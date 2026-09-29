@@ -1,0 +1,86 @@
+name: Capture Secount runtime media
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "assets/runtime-screenshot.png"
+      - "assets/demo.gif"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install capture tools
+        run: sudo apt-get update && sudo apt-get install -y xvfb imagemagick xdotool
+      - name: Set up Gradle
+        run: |
+          curl -sL -o gradle.zip https://services.gradle.org/distributions/gradle-8.13-bin.zip
+          unzip -q gradle.zip -d "$HOME/gradle"
+          echo "$HOME/gradle/gradle-8.13/bin" >> "$GITHUB_PATH"
+      - name: Capture actual desktop runtime
+        shell: bash
+        run: |
+          set -e
+          mkdir -p assets/capture-frames
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1200x900x24 >/tmp/xvfb.log 2>&1 &
+          XVFB_PID=$!
+          trap 'kill $XVFB_PID 2>/dev/null || true' EXIT
+          sleep 2
+
+          gradle -p android :desktopApp:run > /tmp/secount.log 2>&1 &
+          APP_PID=$!
+
+          WID=""
+          for i in $(seq 1 60); do
+            WID=$(xdotool search --name "Secount" 2>/dev/null | head -n 1 || true)
+            if [ -n "$WID" ]; then break; fi
+            sleep 1
+          done
+          if [ -z "$WID" ]; then
+            echo "Secount window not found"
+            cat /tmp/secount.log || true
+            kill $APP_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          xdotool windowactivate --sync "$WID"
+          xdotool windowraise "$WID" || true
+          sleep 2
+
+          for i in $(seq -w 0 17); do
+            import -window "$WID" "assets/capture-frames/frame-$i.png"
+            sleep 0.35
+          done
+          cp assets/capture-frames/frame-17.png assets/runtime-screenshot.png
+
+          convert -delay 12 -loop 0 assets/capture-frames/frame-*.png assets/demo.gif
+          rm -rf assets/capture-frames
+          kill $APP_PID 2>/dev/null || true
+
+      - name: Commit runtime media
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/runtime-screenshot.png assets/demo.gif
+          if git diff --cached --quiet; then
+            echo "No runtime media changes."
+          else
+            git commit -m "Add actual Secount runtime screenshot and GIF demo"
+            git push
+          fi

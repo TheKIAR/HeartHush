@@ -1139,11 +1139,15 @@ fun App() {
                                 Text(live.message)
                                 Spacer(Modifier.height(8.dp))
                             }
-                            // Secret section — shown even if secretEnabled flag is off,
+                            // Secret section — revealed word by word like a letter
+                            // being written. Shown even if secretEnabled flag is off,
                             // as long as text exists (prevents "only normal visible" bug).
                             if (live.secretMessage.isNotBlank()) {
                                 Text("🎁 Secret message:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text(live.secretMessage)
+                                LetterReveal(
+                                    text = live.secretMessage,
+                                    key = live.id + live.secretMessage + opened.toString()
+                                )
                                 Spacer(Modifier.height(8.dp))
                             }
                             if (live.message.isBlank() && live.secretMessage.isBlank()) {
@@ -1687,6 +1691,44 @@ private fun MappedDropDown(
                     onClick = { onSelectId(id); open = false }
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun LetterReveal(
+    text: String,
+    key: String,
+    wordDelayMs: Long = 320L
+) {
+    val words = remember(key) {
+        text.split(Regex("\\s+")).filter { it.isNotEmpty() }
+    }
+    var shown by remember(key) { mutableStateOf(0) }
+    var replayTick by remember(key) { mutableStateOf(0) }
+    @Suppress("UNUSED_EXPRESSION")
+    replayTick
+    LaunchedEffect(key, replayTick) {
+        shown = 0
+        // Small pause before the letter starts writing.
+        delay(400)
+        while (shown < words.size) {
+            delay(wordDelayMs)
+            shown++
+        }
+    }
+    val done = shown >= words.size
+    Column {
+        Text(
+            if (shown <= 0) "✒…" else words.take(shown).joinToString(" ") + if (done) "" else " ▍",
+            fontSize = 15.sp
+        )
+        Spacer(Modifier.height(4.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(
+                onClick = { replayTick++ },
+                enabled = done
+            ) { Text(if (done) "↻ Replay" else "${shown}/${words.size}") }
         }
     }
 }

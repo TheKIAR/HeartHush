@@ -29,6 +29,8 @@ jobs:
           curl -sL -o gradle.zip https://services.gradle.org/distributions/gradle-8.13-bin.zip
           unzip -q gradle.zip -d "$HOME/gradle"
           echo "$HOME/gradle/gradle-8.13/bin" >> "$GITHUB_PATH"
+      - name: Build desktop app before launch
+        run: gradle -p android :desktopApp:compileKotlinDesktop --no-daemon
       - name: Capture actual desktop runtime
         shell: bash
         run: |
@@ -40,17 +42,22 @@ jobs:
           trap 'kill $XVFB_PID 2>/dev/null || true' EXIT
           sleep 2
 
-          gradle -p android :desktopApp:run > /tmp/secount.log 2>&1 &
+          gradle -p android :desktopApp:run --no-daemon > /tmp/secount.log 2>&1 &
           APP_PID=$!
 
           WID=""
-          for i in $(seq 1 60); do
+          for i in $(seq 1 180); do
             WID=$(xdotool search --name "Secount" 2>/dev/null | head -n 1 || true)
             if [ -n "$WID" ]; then break; fi
+            if ! kill -0 "$APP_PID" 2>/dev/null; then
+              echo "Secount process exited before window appeared"
+              cat /tmp/secount.log || true
+              exit 1
+            fi
             sleep 1
           done
           if [ -z "$WID" ]; then
-            echo "Secount window not found"
+            echo "Secount window not found after 180 seconds"
             cat /tmp/secount.log || true
             kill $APP_PID 2>/dev/null || true
             exit 1
@@ -58,15 +65,14 @@ jobs:
 
           xdotool windowactivate --sync "$WID"
           xdotool windowraise "$WID" || true
-          sleep 2
+          sleep 3
 
-          for i in $(seq -w 0 17); do
+          for i in $(seq -w 0 23); do
             import -window "$WID" "assets/capture-frames/frame-$i.png"
-            sleep 0.35
+            sleep 0.30
           done
-          cp assets/capture-frames/frame-17.png assets/runtime-screenshot.png
-
-          convert -delay 12 -loop 0 assets/capture-frames/frame-*.png assets/demo.gif
+          cp assets/capture-frames/frame-23.png assets/runtime-screenshot.png
+          convert -delay 10 -loop 0 assets/capture-frames/frame-*.png assets/demo.gif
           rm -rf assets/capture-frames
           kill $APP_PID 2>/dev/null || true
 

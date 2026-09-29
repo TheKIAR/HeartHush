@@ -35,12 +35,14 @@ fun main() {
         ) {
         // User rule: lock only when the window loses focus (Home/minimize/
         // Alt-Tab), never on a timer. App.kt polls this flag once per second.
+        // File-dialog photo picking also drops focus — that must NOT lock.
         remember(window) {
             try {
                 window.addWindowFocusListener(object : WindowFocusListener {
                     override fun windowGainedFocus(e: WindowEvent?) {}
                     override fun windowLostFocus(e: WindowEvent?) {
                         try {
+                            if (com.secount.app.logic.PhotoLockGuard.picking) return
                             java.util.prefs.Preferences.userRoot().node("secount")
                                 .put("secount_need_lock", "1")
                         } catch (ignored: Exception) {

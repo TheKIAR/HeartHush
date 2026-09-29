@@ -130,7 +130,9 @@ data class SyncResult(
     var severed: Boolean = false,
     var changed: Boolean = false,
     var offline: Boolean = false,
-    var replyReceived: Boolean = false
+    var replyReceived: Boolean = false,
+    /** Id of the countdown that got a reply (to auto-open it), or null. */
+    var replyId: String? = null
 )
 
 class PairStore(ns: String = "") {
@@ -709,6 +711,7 @@ class SyncEngine(private val store: EventStore, private val pair: PairStore) {
                         store.addOrUpdate(item)
                     }
                     res.replyReceived = true
+                    res.replyId = id
                     res.changed = true
                 } catch (ignored: Exception) {
                 }

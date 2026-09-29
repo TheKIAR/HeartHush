@@ -163,7 +163,9 @@ class EventItem {
     }
 
     fun hasSecret(): Boolean {
-        return secretEnabled && secretMessage.trim().isNotEmpty()
+        // Secret text alone is enough — the toggle is auto-armed on save,
+        // but old items may have text with the flag off. Never hide those.
+        return secretMessage.trim().isNotEmpty()
     }
 
     fun displayIcon(): String {

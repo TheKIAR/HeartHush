@@ -1,6 +1,16 @@
 package com.secount.app.logic
 
 /**
+ * Set while the photo picker / file dialog is open. The OS briefly sends
+ * us to background (Android onPause / desktop focus-lost) during picking —
+ * that must NOT trigger the Home-lock, or unsaved editor text is lost.
+ */
+object PhotoLockGuard {
+    @Volatile
+    var picking: Boolean = false
+}
+
+/**
  * App PIN lock. The whole app sits behind this PIN (first run: 1234).
  * Changeable from settings; stored as salted SHA-256.
  */

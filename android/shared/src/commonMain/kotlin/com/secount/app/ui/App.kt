@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -72,6 +73,7 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.secount.app.logic.EventItem
 import com.secount.app.logic.EventStore
 import com.secount.app.logic.PairStore
+import com.secount.app.logic.PhotoLockGuard
 import com.secount.app.logic.PinLock
 import com.secount.app.logic.SyncEngine
 import com.secount.app.logic.alarmBeep
@@ -283,12 +285,26 @@ fun App() {
                 if (res.severDeclined) notice = "Your partner declined to disconnect. Still connected."
                 if (res.severed) notice = "Connection severed by mutual agreement."
                 if (res.replyReceived) {
-                    notice = "Your partner replied to a secret message."
+                    val target = res.replyId?.let { store.byId(it) }
+                    val title = target?.title?.takeIf { it.isNotBlank() } ?: "a secret message"
+                    // Auto-open the conversation so the reply is visible right away.
+                    // Only when the item is visible to this device (sender always;
+                    // receiver only at zero) — otherwise keep it for D-day.
+                    if (target != null) {
+                        val t = LocalDate.now()
+                        // isForMe items hidden until due; sender items always visible.
+                        val syncMyId = try { pair.accountId } catch (e: Exception) { "" }
+                        val canShow = if (target.isForMe(syncMyId)) target.isDueToday(t) else true
+                        if (canShow) {
+                            secretOf = target
+                        }
+                    }
+                    notice = "💬 Partner replied to '$title'. Open it to read & reply."
                     if (!isMuted()) {
                         try {
                             notifySecret(
-                                "Secount reply",
-                                "Your partner replied to a secret message. Open it."
+                                "Secount reply 💬",
+                                "Partner replied to '$title'. Tap to open Secount and read it."
                             )
                         } catch (ignored: Exception) {
                         }
@@ -310,11 +326,18 @@ fun App() {
             secTick++
             // Lock only when the OS sent us Home/background (native sets the
             // flag). No timer auto-lock while you stay in the app.
+            // While the photo picker is open the OS also backgrounds us —
+            // that must NOT lock, or unsaved editor text is lost.
             try {
                 if (prefsGet(NEED_LOCK_KEY) == "1") {
-                    prefsPut(NEED_LOCK_KEY, "")
-                    pin.lockOnHome()
-                    unlocked = false
+                    if (PhotoLockGuard.picking) {
+                        // Consume the flag, stay unlocked during picking.
+                        prefsPut(NEED_LOCK_KEY, "")
+                    } else {
+                        prefsPut(NEED_LOCK_KEY, "")
+                        pin.lockOnHome()
+                        unlocked = false
+                    }
                 }
             } catch (ignored: Exception) {
             }
@@ -329,11 +352,10 @@ fun App() {
         }
     }
 
-    if (!unlocked) {
-        PinGate(pin, themeName, darkMode, onUnlock = { unlocked = pin.isUnlocked(); refresh() })
-        return
-    }
-
+    // No early return here on purpose: the main UI stays composed under the
+    // PIN overlay so unsaved editor text / photo state survives a lock.
+    // When locked, PinGate is drawn full-screen on top at the end of this
+    // composable (see bottom of SecountTheme block).
     val today = LocalDate.now()
     @Suppress("UNUSED_EXPRESSION")
     secTick
@@ -358,7 +380,7 @@ fun App() {
                     "Today" -> e.isDueToday(t)
                     "Next 7 days" -> !e.isPast(t) && e.daysUntil(t) <= 7
                     "Featured" -> e.featured
-                    "With secret" -> e.hasSecret()
+                    "With secret" -> e.hasSecret() || e.threadEntries().isNotEmpty()
                     "Past" -> e.isPast(t)
                     "To partner" -> e.forPartner && e.isMine(myId)
                     else -> true
@@ -384,7 +406,9 @@ fun App() {
     // items I sent are revealed on the partner's device instead.
     // Partner items also fire the "You Have a Secret Message" notification.
     // Plus 1-day / 7-day pre-reminders (once per day per event).
-    LaunchedEffect(secTick) {
+    // Never auto-open secrets while the PIN overlay is up.
+    LaunchedEffect(secTick, unlocked) {
+        if (!unlocked) return@LaunchedEffect
         if (secTick % 5 != 0) return@LaunchedEffect
         val t = LocalDate.now()
         for (e in store.items()) {
@@ -442,6 +466,7 @@ fun App() {
     }
 
     SecountTheme(themeName, darkMode) {
+      Box(Modifier.fillMaxSize()) {
         val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
         fun closeDrawer() {
             scope.launch { try {
@@ -741,8 +766,13 @@ fun App() {
                                             } catch (ignored: Exception) {
                                             }
                                         }
-                                        if (e.hasSecret()) secretOf = e else alarmOf = e
+                                        // Open the message view when there is anything
+                                        // conversation-like: secret, replies, or a shared
+                                        // partner countdown. Otherwise plain alarm.
+                                        val hasThread = e.threadEntries().isNotEmpty()
+                                        if (e.hasSecret() || hasThread || e.forPartner) secretOf = e else alarmOf = e
                                     },
+                                    onMessages = { secretOf = e },
                                     onDelete = { confirmDelete = e }
                                 )
                             }
@@ -928,35 +958,73 @@ fun App() {
         }
         secretOf?.let { item ->
             val live = store.byId(item.id) ?: item
-            var opened by remember(item.id) { mutableStateOf(false) }
+            val initialThread = (store.byId(item.id)?.threadEntries() ?: item.threadEntries())
+            // If a conversation already exists, show it immediately — no extra OPEN tap
+            // needed to discover the partner's reply.
+            var opened by remember(item.id) { mutableStateOf(initialThread.isNotEmpty()) }
             var reply by remember(item.id) { mutableStateOf("") }
             var sending by remember(item.id) { mutableStateOf(false) }
             val forMe = live.isForMe(myId)
             AlertDialog(
                 onDismissRequest = { secretOf = null },
-                title = { Text(if (forMe) "🎁 You have a new secret message — open it" else "💌 You have a message") },
+                title = {
+                    Text(
+                        if (forMe) "🎁 ${live.title.ifEmpty { "You have a secret message" }}"
+                        else "💌 ${live.title.ifEmpty { "You have a message" }}"
+                    )
+                },
                 text = {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
+                        Text("${live.displayCategory()} • ${live.dateLabel()}", fontSize = 12.sp)
+                        Spacer(Modifier.height(6.dp))
                         if (!opened) {
                             Text(
                                 if (forMe) "Your partner sent you a surprise. It arrived at zero — open it when you're ready."
-                                else "${live.title} • ${live.displayCategory()} — the day is here!"
+                                else "The countdown reached zero. Open your message when you're ready."
                             )
                             Spacer(Modifier.height(8.dp))
-                            Text("The countdown reached zero. Open your message when you're ready.")
-                        } else {
-                            if (forMe) {
-                                Text("🎁 Secret message:", fontWeight = FontWeight.Bold)
+                            val pendingThread = (store.byId(live.id)?.threadEntries() ?: live.threadEntries())
+                            if (pendingThread.isNotEmpty()) {
+                                Text("💬 ${pendingThread.size} repl${if (pendingThread.size == 1) "y" else "ies"} — open to read.", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                 Spacer(Modifier.height(4.dp))
                             }
-                            val mainSecret = if (live.message.isNotEmpty() && live.secretMessage.isNotEmpty())
-                                live.message + "\n\n" + live.secretMessage
-                            else live.message + live.secretMessage
-                            Text(if (mainSecret.isNotEmpty()) mainSecret else "The day has arrived!")
-                            Spacer(Modifier.height(10.dp))
+                        } else {
+                            // Normal message section (always shown, labelled).
+                            if (live.message.isNotBlank()) {
+                                Text("✉ Message:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(live.message)
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            // Secret section — shown even if secretEnabled flag is off,
+                            // as long as text exists (prevents "only normal visible" bug).
+                            if (live.secretMessage.isNotBlank()) {
+                                Text("🎁 Secret message:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text(live.secretMessage)
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            if (live.message.isBlank() && live.secretMessage.isBlank()) {
+                                Text("The day has arrived! ♥")
+                                Spacer(Modifier.height(8.dp))
+                            }
+                            if (live.photoUri.isNotEmpty()) {
+                                val bmp = remember(live.photoUri) {
+                                    try {
+                                        loadPhotoBitmap(live.photoUri)
+                                    } catch (ignored: Exception) {
+                                        null
+                                    }
+                                }
+                                if (bmp != null) {
+                                    Image(
+                                        bmp, contentDescription = Lang.t("photo"),
+                                        modifier = Modifier.fillMaxWidth().height(160.dp)
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                }
+                            }
                             val thread = (store.byId(live.id)?.threadEntries() ?: live.threadEntries())
                             if (thread.isNotEmpty()) {
-                                Text("💬 Conversation:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("💬 Conversation (${thread.size}):", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                 for ((ts, who, text) in thread) {
                                     val whenS = if (ts > 0) {
                                         try {
@@ -965,8 +1033,15 @@ fun App() {
                                             ""
                                         }
                                     } else ""
+                                    // Normalize: own messages -> You, partner's -> Partner.
+                                    val whoLabel = when (who) {
+                                        "me", "sender" -> "You"
+                                        "partner" -> "Partner"
+                                        "" -> if (forMe) "Partner" else "You"
+                                        else -> who
+                                    }
                                     Text(
-                                        (if (who.isNotEmpty()) "$who: " else "") + text + (if (whenS.isNotEmpty()) "  ($whenS)" else ""),
+                                        "$whoLabel: $text" + (if (whenS.isNotEmpty()) "  ($whenS)" else ""),
                                         fontSize = 13.sp
                                     )
                                 }
@@ -1052,6 +1127,12 @@ fun App() {
                 }
             )
         }
+        // PIN overlay on top: keeps editor/dialog state composed underneath,
+        // so a lock never clears unsaved text or photo choice.
+        if (!unlocked) {
+            PinGate(pin, themeName, darkMode, onUnlock = { unlocked = pin.isUnlocked(); refresh() })
+        }
+      }
     }
 }
 
@@ -1453,6 +1534,7 @@ private fun SecretInboxCard(
     onOpen: () -> Unit
 ) {
     val accent = e.accentColor(Brand)
+    val replies = try { e.threadEntries().size } catch (ignored: Exception) { 0 }
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
@@ -1463,7 +1545,7 @@ private fun SecretInboxCard(
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "You have a new secret message — open it",
+                        if (e.title.isNotBlank()) e.title else "You have a new secret message — open it",
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
@@ -1475,6 +1557,10 @@ private fun SecretInboxCard(
             }
             Spacer(Modifier.height(6.dp))
             Text("Your partner's surprise arrived at zero. Nothing was visible before today.", fontSize = 13.sp)
+            if (replies > 0) {
+                Spacer(Modifier.height(4.dp))
+                Text("💬 $replies repl${if (replies == 1) "y" else "ies"} — open to read & reply.", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = accent)
+            }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 Button(onClick = onOpen) { Text(Lang.t("openMsg")) }
@@ -1491,7 +1577,8 @@ private fun EventCard(
     onEdit: () -> Unit,
     onDuplicate: () -> Unit,
     onRing: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onMessages: () -> Unit = onRing
 ) {
     val today = now.toLocalDate()
     val due = e.isDueToday(today)
@@ -1519,6 +1606,11 @@ private fun EventCard(
                     if (forMe) bits.add("🎁 FOR YOU")
                     else if (mine && e.forPartner) bits.add(if (e.delivered) "✉ DELIVERED" else "✉ TO PARTNER")
                     if (e.hasSecret() && !forMe) bits.add("SECRET ARMED")
+                    try {
+                        val rc = e.threadEntries().size
+                        if (rc > 0) bits.add("💬 $rc ${if (rc == 1) "REPLY" else "REPLIES"}")
+                    } catch (ignored: Exception) {
+                    }
                     if (e.effectiveRepeat() != "once") bits.add(e.repeatLabel().uppercase())
                     if (e.soundName == "Silent") bits.add("MUTED")
                     Text(bits.joinToString(" • "), color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -1558,6 +1650,15 @@ private fun EventCard(
                     )
                 }
             }
+            val threadPreview = try { e.threadEntries() } catch (ignored: Exception) { emptyList() }
+            if (threadPreview.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                val lastPreview = threadPreview.last()
+                Text(
+                    "💬 ${threadPreview.size} ${if (threadPreview.size == 1) "reply" else "replies"} — \"${lastPreview.third.take(60)}\" — tap MESSAGES to read & reply.",
+                    fontSize = 12.sp, fontWeight = FontWeight.Bold
+                )
+            }
             Spacer(Modifier.height(8.dp))
             LinearProgressIndicator(
                 progress = { e.progress01(today) },
@@ -1568,7 +1669,12 @@ private fun EventCard(
                 if (mine) {
                     TextButton(onClick = onDuplicate) { Text("Copy") }
                     TextButton(onClick = onRing) { Text("Ring") }
+                    // Separate entry to the full message + conversation view
+                    // (secret + replies). This is how a sender sees a reply.
+                    TextButton(onClick = onMessages) { Text("Messages") }
                     TextButton(onClick = onDelete) { Text("Delete") }
+                } else if (!mine && !forMe) {
+                    TextButton(onClick = onMessages) { Text("View") }
                 }
             }
         }
@@ -1699,7 +1805,16 @@ private fun EditDialog(
                 )
                 OutlinedTextField(message, { message = it }, label = { Text(Lang.t("message")) })
                 Spacer(Modifier.height(6.dp))
-                OutlinedTextField(secretMsg, { secretMsg = it }, label = { Text(Lang.t("secretMsg")) })
+                OutlinedTextField(
+                    secretMsg,
+                    {
+                        secretMsg = it
+                        // Typing a secret auto-arms it — prevents the
+                        // "typed secret but forgot the toggle, only normal shows" bug.
+                        if (it.trim().isNotEmpty() && !secretOn) secretOn = true
+                    },
+                    label = { Text(Lang.t("secretMsg")) }
+                )
                 Spacer(Modifier.height(6.dp))
                 Text(Lang.t("photo"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 if (photo.isNotEmpty()) {
@@ -1731,13 +1846,17 @@ private fun EditDialog(
                         onClick = {
                             if (picking) return@OutlinedButton
                             picking = true
+                            // Suppress Home-lock while the picker backgrounds us.
+                            PhotoLockGuard.picking = true
                             try {
                                 pickPhotoFile { name ->
                                     if (name != null) photo = name
                                     picking = false
+                                    PhotoLockGuard.picking = false
                                 }
                             } catch (ignored: Exception) {
                                 picking = false
+                                PhotoLockGuard.picking = false
                             }
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -1787,9 +1906,11 @@ private fun EditDialog(
                 item.soundName = soundSel
                 item.remind1d = remind1
                 item.remind7d = remind7
-                item.secretEnabled = secretOn
+                // Auto-arm secret when text exists (toggle forgotten case).
+                val effectiveSecretOn = secretOn || secretMsg.trim().isNotEmpty()
+                item.secretEnabled = effectiveSecretOn
                 item.message = message.trim()
-                item.secretMessage = secretMsg
+                item.secretMessage = secretMsg.trim()
                 if (!item.secretEnabled) item.secretMessage = ""
                 if (item.photoUri != photo && item.photoUri.isNotEmpty() && photo.isEmpty()) {
                     try {

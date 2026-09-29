@@ -9,7 +9,7 @@ deadlines, app / game launches.
 100% Kotlin, built with Compose Multiplatform: `android/shared` holds all logic
 plus every screen, `android/androidApp` is the APK entry point, and
 `android/desktopApp` is the Windows entry point. Same `events.json` schema on
-both, so files are interchangeable. Fresh installs start empty — no samples.
+both, so files are interchangeable.
 
 ## ✨ Features
 

@@ -498,6 +498,7 @@ fun App() {
                                 val item = EventItem()
                                 item.date = LocalDate.now().plusDays(7)
                                 item.senderId = myId
+                                item.forPartner = pair.isPaired()
                                 editing = item
                                 editIsNew = true
                                 closeDrawer()
@@ -722,6 +723,7 @@ fun App() {
                             val item = EventItem()
                             item.date = LocalDate.now().plusDays(7)
                             item.senderId = myId
+                            item.forPartner = pair.isPaired()
                             editing = item
                             editIsNew = true
                         }) { Text(Lang.t("newBtn")) }
@@ -784,6 +786,7 @@ fun App() {
                         val item = EventItem()
                         item.date = LocalDate.now().plusDays(7)
                         item.senderId = myId
+                        item.forPartner = pair.isPaired()
                         editing = item
                         editIsNew = true
                     },
@@ -1692,7 +1695,8 @@ private fun EditDialog(
     onCancel: () -> Unit
 ) {
     val partnerOpt = if (pair.isPaired()) "To partner (${pair.partnerCode()})" else null
-    val audiences = if (partnerOpt != null) listOf("Just me", partnerOpt) else listOf("Just me")
+    // Partner-first: this app's main focus is sharing with the partner.
+    val audiences = if (partnerOpt != null) listOf(partnerOpt, "Just me") else listOf("Just me")
     var title by remember { mutableStateOf(initial.title) }
     var category by remember { mutableStateOf(initial.displayCategory()) }
     var icon by remember { mutableStateOf(initial.displayIcon()) }
@@ -1726,7 +1730,9 @@ private fun EditDialog(
         )
     }
     var audience by remember {
-        mutableStateOf(if (initial.forPartner && partnerOpt != null) partnerOpt else "Just me")
+        // New countdowns default to the partner when linked (main focus),
+        // edits keep their existing audience.
+        mutableStateOf(if (partnerOpt != null && (initial.forPartner || isNew)) partnerOpt else "Just me")
     }
     var showDate by remember { mutableStateOf(false) }
     var titleErr by remember { mutableStateOf(false) }

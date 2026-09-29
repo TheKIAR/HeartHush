@@ -2,10 +2,10 @@ package com.secount.app.ui
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.material3.Shapes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -17,16 +17,19 @@ val BrandDark = Color(0xFFC2185B)
 val Gold = Color(0xFFFFC973)
 val Success = Color(0xFF10B981)
 
-// Softer neutrals keep the interface readable and approachable while the
-// accent color still gives countdowns a clear visual identity.
-private val Ink = Color(0xFF241D22)
-private val InkMuted = Color(0xFF6F626B)
-private val DarkInk = Color(0xFFF7EFF3)
-private val DarkMuted = Color(0xFFD0C2C9)
+// Modern warm neutrals keep the Valentine palette polished and approachable.
+private val Ink = Color(0xFF20191E)
+private val InkMuted = Color(0xFF71646C)
+private val DarkInk = Color(0xFFF9F1F5)
+private val DarkMuted = Color(0xFFD1C3CA)
+private val LightBg = Color(0xFFFFF8FA)
+private val LightSurface = Color(0xFFFFFCFD)
+private val DarkBg = Color(0xFF10080D)
+private val DarkSurface = Color(0xFF21131B)
 
 private val AppShapes = Shapes(
-    extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
-    small = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+    extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+    small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
     medium = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
     large = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
     extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(30.dp)
@@ -62,12 +65,12 @@ private fun lightOf(primary: Color, bg: Color, surface: Color, secondary: Color 
         surface = surface,
         surfaceContainer = surface,
         surfaceContainerLow = bg,
-        surfaceContainerHigh = surface,
+        surfaceContainerHigh = Color(0xFFFFF4F7),
         onSurface = Ink,
         surfaceVariant = surface,
         onSurfaceVariant = InkMuted,
-        outline = Color(0xFFE0D5DC),
-        outlineVariant = Color(0xFFECE4E8),
+        outline = Color(0xFFE5D8DE),
+        outlineVariant = Color(0xFFF0E7EB),
         background = bg,
         onBackground = Ink
     )
@@ -76,21 +79,21 @@ private fun darkOf(primary: Color, bg: Color, surface: Color, secondary: Color =
     darkColorScheme(
         primary = primary,
         onPrimary = Color.White,
-        primaryContainer = primary.copy(alpha = 0.24f),
+        primaryContainer = primary.copy(alpha = 0.22f),
         onPrimaryContainer = DarkInk,
         secondary = secondary,
-        onSecondary = Color(0xFF241D22),
-        secondaryContainer = secondary.copy(alpha = 0.22f),
+        onSecondary = Ink,
+        secondaryContainer = secondary.copy(alpha = 0.20f),
         onSecondaryContainer = DarkInk,
         surface = surface,
         surfaceContainer = surface,
         surfaceContainerLow = bg,
-        surfaceContainerHigh = Color(0xFF382B33),
+        surfaceContainerHigh = Color(0xFF302029),
         onSurface = DarkInk,
-        surfaceVariant = surface,
         onSurfaceVariant = DarkMuted,
-        outline = Color(0xFF5A4852),
-        outlineVariant = Color(0xFF493A42),
+        surfaceVariant = surface,
+        outline = Color(0xFF604A55),
+        outlineVariant = Color(0xFF4B3942),
         background = bg,
         onBackground = DarkInk
     )
@@ -98,8 +101,8 @@ private fun darkOf(primary: Color, bg: Color, surface: Color, secondary: Color =
 val THEMES = listOf(
     NamedTheme(
         "Valentine",
-        lightOf(Color(0xFFFF5D97), Color(0xFFFFF7F9), Color(0xFFFFFBFC)),
-        darkOf(Color(0xFFFF6FA5), Color(0xFF12070D), Color(0xFF24111A))
+        lightOf(Brand, LightBg, LightSurface),
+        darkOf(Color(0xFFFF6FA5), DarkBg, DarkSurface)
     ),
     NamedTheme(
         "Midnight Android",

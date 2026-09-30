@@ -59,19 +59,23 @@ jobs:
           if [ -z "$WID" ]; then
             echo "Secount window not found after 180 seconds"
             cat /tmp/secount.log || true
-            kill $APP_PID 2>/dev/null || true
             exit 1
           fi
 
-          # Do not use windowactivate/windowraise: GitHub's headless Xvfb window manager
-          # does not implement _NET_ACTIVE_WINDOW. Capture the identified window directly.
-          sleep 3
+          # GitHub's headless Xvfb can expose the Java window to xdotool while
+          # ImageMagick's per-window X11 capture cannot read that window resource.
+          # Capture the complete virtual desktop instead; Secount is the only app
+          # launched on the display, so this is a genuine runtime screenshot.
+          sleep 4
           for i in $(seq -w 0 23); do
-            import -window "$WID" "assets/capture-frames/frame-$i.png"
+            import -window root "assets/capture-frames/frame-$i.png"
             sleep 0.30
           done
+
           cp assets/capture-frames/frame-23.png assets/runtime-screenshot.png
           convert -delay 10 -loop 0 assets/capture-frames/frame-*.png assets/demo.gif
+          test -s assets/runtime-screenshot.png
+          test -s assets/demo.gif
           rm -rf assets/capture-frames
           kill $APP_PID 2>/dev/null || true
 

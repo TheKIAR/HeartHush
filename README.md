@@ -12,15 +12,15 @@ These are captured from the **running Secount desktop application**, not mockups
 
 ### 🔐 Locked screen
 
-![Secount locked screen](./assets/runtime-locked.png)
+![Secount locked screen](https://raw.githubusercontent.com/TheKIAR/Secount/main/assets/runtime-locked.png)
 
 ### 💗 Unlocked app
 
-![Secount unlocked screen](./assets/runtime-unlocked.png)
+![Secount unlocked screen](https://raw.githubusercontent.com/TheKIAR/Secount/main/assets/runtime-unlocked.png)
 
 ### 🎬 Lock → PIN → App demo
 
-![Secount real runtime GIF](./assets/demo.gif)
+![Secount real runtime GIF](https://raw.githubusercontent.com/TheKIAR/Secount/main/assets/demo.gif)
 
 The runtime demo uses the app's real PIN-lock flow with the default demo PIN **1234**, then unlocks into the full application. The GitHub Actions bot captures and commits fresh media automatically.
 

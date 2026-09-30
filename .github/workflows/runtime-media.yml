@@ -63,10 +63,9 @@ jobs:
             exit 1
           fi
 
-          xdotool windowactivate --sync "$WID"
-          xdotool windowraise "$WID" || true
+          # Do not use windowactivate/windowraise: GitHub's headless Xvfb window manager
+          # does not implement _NET_ACTIVE_WINDOW. Capture the identified window directly.
           sleep 3
-
           for i in $(seq -w 0 23); do
             import -window "$WID" "assets/capture-frames/frame-$i.png"
             sleep 0.30
@@ -85,6 +84,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No runtime media changes."
           else
-            git commit -m "Add actual Secount runtime screenshot and GIF demo"
+            git commit -m "Add updated Secount runtime screenshot and GIF demo"
             git push
           fi

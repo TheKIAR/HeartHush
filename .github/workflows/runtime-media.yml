@@ -79,27 +79,47 @@ jobs:
           fi
 
           sleep 5
+
+          # Make sure the Secount window is the active/focused window before
+          # interacting with the PIN field. The PIN for this clean demo is 1234.
+          xdotool windowactivate --sync "$WID"
+          eval "$(xdotool getwindowgeometry --shell "$WID")"
+          CLICK_X=$((X + WIDTH / 2))
+          CLICK_Y=$((Y + HEIGHT / 2))
+          xdotool mousemove --sync "$CLICK_X" "$CLICK_Y"
+          xdotool click 1
+          sleep 0.5
+
+          # Capture the genuinely locked state first.
           import -window root assets/runtime-locked.png
 
-          # Unlock the real UI with the requested PIN.
-          xdotool type --window "$WID" "1234"
-          xdotool key --window "$WID" Return
-          sleep 5
-          import -window root assets/runtime-unlocked.png
-
-          # Real interaction GIF: locked screen -> PIN entry -> unlocked app.
+          # Build the GIF from the same real interaction: locked -> PIN -> app.
           rm -f assets/capture-frames/*.png
           for i in $(seq -w 00 07); do
             import -window root "assets/capture-frames/locked-$i.png"
             sleep 0.25
           done
-          xdotool type --window "$WID" "1234"
-          sleep 0.3
+
+          # Enter the real PIN after explicitly focusing the app window.
+          xdotool windowactivate --sync "$WID"
+          xdotool type --delay 120 --window "$WID" "1234"
           xdotool key --window "$WID" Return
+          sleep 5
+
+          # The unlocked screenshot must be the actual app screen, not the lock UI.
+          import -window root assets/runtime-unlocked.png
+
           for i in $(seq -w 08 23); do
             import -window root "assets/capture-frames/unlocked-$i.png"
             sleep 0.30
           done
+
+          # Fail the workflow if the two supposedly different states are identical.
+          if compare -metric AE assets/runtime-locked.png assets/runtime-unlocked.png null: 2>/tmp/compare.txt; then
+            echo "ERROR: locked and unlocked screenshots are identical."
+            cat /tmp/compare.txt
+            exit 1
+          fi
 
           convert -delay 10 -loop 0 assets/capture-frames/*.png assets/demo.gif
           test -s assets/runtime-locked.png

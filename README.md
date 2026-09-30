@@ -124,7 +124,7 @@ build.bat
 
 This builds the desktop JAR and Windows executable.
 
-### Android
+### Android APK
 
 ```bat
 android\build-apk.bat
@@ -153,10 +153,10 @@ GitHub Actions automatically:
 **Md. Ragib Ashhab**  
 CSE Student • Java / Python • AI • Computer Graphics • Software Projects
 
-- 🌐 Portfolio: https://ragibashhab.netlify.app/
-- 🔗 Linktree: https://linktr.ee/RagibAshhab
-- 💼 LinkedIn: https://www.linkedin.com/in/md-ragib-ashhab-768a19240/
-- 🐙 GitHub: https://github.com/TheKIAR
+- 🌐 Portfolio: [ragibashhab.netlify.app](https://ragibashhab.netlify.app/)
+- 🔗 Linktree: [linktr.ee/RagibAshhab](https://linktr.ee/RagibAshhab)
+- 💼 LinkedIn: [md-ragib-ashhab-768a19240](https://www.linkedin.com/in/md-ragib-ashhab-768a19240/)
+- 🐙 GitHub: [TheKIAR](https://github.com/TheKIAR)
 
 ---
 

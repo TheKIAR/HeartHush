@@ -3,25 +3,35 @@ package com.secount.app.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -29,10 +39,13 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -45,8 +58,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -58,6 +69,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -66,6 +78,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.zxing.BarcodeFormat
@@ -187,6 +200,33 @@ private val FILTERS = listOf("All", "Today", "Next 7 days", "Featured", "With se
 private val SORTS = listOf("Happening next", "Name A–Z", "Biggest countdown", "Newest first")
 private val REPEATS = listOf("One-time", "Yearly", "Monthly", "Weekly")
 private val SOUNDS = listOf("Chime", "Soft", "Silent")
+private val TEXT_SIZES = listOf("Standard", "Large", "Extra large")
+private const val TEXT_SIZE_KEY = "secount_textsize"
+
+private fun textScale(pref: String): Float = when (pref) {
+    "Large" -> 1.15f
+    "Extra large" -> 1.3f
+    else -> 1f
+}
+
+private fun scaled(base: TextUnit, scale: Float): TextUnit = (base.value * scale).sp
+
+private fun greetingFor(hour: Int): String = when (hour) {
+    in 5..11 -> "Good morning"
+    in 12..17 -> "Good afternoon"
+    in 18..22 -> "Good evening"
+    else -> "Good night"
+}
+
+private fun filterEmoji(id: String): String = when (id) {
+    "Today" -> "● "
+    "Next 7 days" -> "◐ "
+    "Featured" -> "★ "
+    "With secret" -> "🎁 "
+    "Past" -> "✓ "
+    "To partner" -> "✉ "
+    else -> ""
+}
 private val ACCENTS = listOf(
     "Auto" to "",
     "Pink" to "#FF5D97",
@@ -231,6 +271,8 @@ fun App() {
     var syncing by remember { mutableStateOf(false) }
     var themeName by remember { mutableStateOf(prefsGet("secount_theme") ?: THEMES[0].name) }
     var darkMode by remember { mutableStateOf(prefsGet("secount_darkmode") ?: "System") }
+    var textSizePref by remember { mutableStateOf(prefsGet(TEXT_SIZE_KEY) ?: TEXT_SIZES[0]) }
+    val fontScale = textScale(textSizePref)
     var muted by remember { mutableStateOf(prefsGet(MUTED_KEY) == "1") }
     var langPref by remember { mutableStateOf(prefsGet(LANG_KEY) ?: "System") }
     var crashReport by remember { mutableStateOf<String?>(null) }
@@ -518,21 +560,44 @@ fun App() {
             drawerContent = {
                 ModalDrawerSheet {
                     Column(
-                        Modifier.padding(16.dp).verticalScroll(rememberScrollState())
+                        Modifier.verticalScroll(rememberScrollState())
                     ) {
-                        Text("♥ Secount", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            if (pair.isPaired()) "✉ Connected to ${pair.partnerCode()}"
-                            else "Not connected",
-                            fontSize = 12.sp
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        HorizontalDivider()
-                        Spacer(Modifier.height(8.dp))
-                        Text(Lang.t("secCountdowns"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        // Modern profile header with theme gradient.
+                        Box(
+                            Modifier.fillMaxWidth()
+                                .background(heroGradient())
+                                .padding(horizontal = 20.dp, vertical = 22.dp)
+                        ) {
+                            Column {
+                                Text("♥ Secount", fontWeight = FontWeight.Bold, fontSize = scaled(24.sp, fontScale), color = Color.White)
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    themeByName(themeName).tagline,
+                                    fontSize = scaled(12.sp, fontScale), color = Color.White.copy(alpha = 0.9f)
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = Color.White.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        if (pair.isPaired()) "✉ Connected • ${pair.partnerCode()}"
+                                        else if (syncing) "○ Syncing…"
+                                        else "○ Not connected — tap Connect",
+                                        fontSize = scaled(12.sp, fontScale),
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
+                        DrawerSection(Lang.t("secCountdowns"))
                         NavigationDrawerItem(
-                            label = { Text(Lang.t("newCountdown")) },
+                            label = { Text(Lang.t("newCountdown"), fontSize = scaled(14.sp, fontScale)) },
                             selected = false,
+                            icon = { Text("＋", fontWeight = FontWeight.Bold) },
                             onClick = {
                                 val item = EventItem()
                                 item.date = LocalDate.now().plusDays(7)
@@ -543,28 +608,32 @@ fun App() {
                                 closeDrawer()
                             }
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(4.dp))
                         HorizontalDivider()
-                        Spacer(Modifier.height(8.dp))
-                        Text(Lang.t("secConnection"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        DrawerSection(Lang.t("secConnection"))
                         NavigationDrawerItem(
-                            label = { Text(if (syncing) Lang.t("syncing") else Lang.t("syncNow")) },
+                            label = { Text(if (syncing) Lang.t("syncing") else Lang.t("syncNow"), fontSize = scaled(14.sp, fontScale)) },
                             selected = false,
+                            icon = { Text("⟳") },
                             onClick = { doSync(); closeDrawer() }
                         )
                         NavigationDrawerItem(
-                            label = { Text(if (pair.isPaired()) "✉ ${pair.partnerCode()}" else Lang.t("connectPartner")) },
+                            label = { Text(if (pair.isPaired()) "✉ ${pair.partnerCode()}" else Lang.t("connectPartner"), fontSize = scaled(14.sp, fontScale)) },
                             selected = false,
+                            icon = { Text("✉") },
                             onClick = { showConnect = true; closeDrawer() }
                         )
                         NavigationDrawerItem(
-                            label = { Text(Lang.t("appPin")) },
+                            label = { Text(Lang.t("appPin"), fontSize = scaled(14.sp, fontScale)) },
                             selected = false,
+                            icon = { Text("🔒") },
                             onClick = { showPin = true; closeDrawer() }
                         )
                         NavigationDrawerItem(
-                            label = { Text(if (muted) Lang.t("unmute") else Lang.t("mute")) },
+                            label = { Text(if (muted) Lang.t("unmute") else Lang.t("mute"), fontSize = scaled(14.sp, fontScale)) },
                             selected = false,
+                            icon = { Text(if (muted) "🔇" else "🔔") },
                             onClick = {
                                 muted = !muted
                                 try {
@@ -579,27 +648,47 @@ fun App() {
                                 }
                             }
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(4.dp))
                         HorizontalDivider()
-                        Spacer(Modifier.height(8.dp))
-                        Text(Lang.t("secBackup"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        DrawerSection(Lang.t("secBackup"))
                         NavigationDrawerItem(
-                            label = { Text(Lang.t("exportBackup")) },
+                            label = { Text(Lang.t("exportBackup"), fontSize = scaled(14.sp, fontScale)) },
                             selected = false,
+                            icon = { Text("⤴") },
                             onClick = { showExport = true; closeDrawer() }
                         )
                         NavigationDrawerItem(
-                            label = { Text(Lang.t("importBackup")) },
+                            label = { Text(Lang.t("importBackup"), fontSize = scaled(14.sp, fontScale)) },
                             selected = false,
+                            icon = { Text("⤵") },
                             onClick = { showImport = true; closeDrawer() }
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(4.dp))
                         HorizontalDivider()
-                        Spacer(Modifier.height(8.dp))
-                        Text(Lang.t("secLanguage"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        DrawerSection("READABILITY")
+                        for (s in TEXT_SIZES) {
+                            NavigationDrawerItem(
+                                label = { Text((if (s == textSizePref) "● " else "○ ") + s, fontSize = scaled(14.sp, fontScale)) },
+                                selected = s == textSizePref,
+                                icon = { Text(if (s == TEXT_SIZES[0]) "A" else if (s == TEXT_SIZES[1]) "A＋" else "A＋＋") },
+                                onClick = {
+                                    textSizePref = s
+                                    try {
+                                        prefsPut(TEXT_SIZE_KEY, s)
+                                    } catch (ignored: Exception) {
+                                    }
+                                }
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        HorizontalDivider()
+                        Spacer(Modifier.height(4.dp))
+                        DrawerSection(Lang.t("secLanguage"))
                         for (l in LANGS) {
                             NavigationDrawerItem(
-                                label = { Text((if (l == langPref) "● " else "○ ") + langDisplay(l)) },
+                                label = { Text((if (l == langPref) "● " else "○ ") + langDisplay(l), fontSize = scaled(14.sp, fontScale)) },
                                 selected = l == langPref,
                                 onClick = {
                                     langPref = l
@@ -610,14 +699,15 @@ fun App() {
                                 }
                             )
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(4.dp))
                         HorizontalDivider()
-                        Spacer(Modifier.height(8.dp))
-                        Text(Lang.t("secAppearance"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        DrawerSection(Lang.t("secAppearance"))
                         for (m in listOf("System", "Light", "Dark")) {
                             NavigationDrawerItem(
-                                label = { Text((if (m == darkMode) "● " else "○ ") + m) },
+                                label = { Text((if (m == darkMode) "● " else "○ ") + m, fontSize = scaled(14.sp, fontScale)) },
                                 selected = m == darkMode,
+                                icon = { Text(if (m == "Light") "☀" else if (m == "Dark") "☾" else "◐") },
                                 onClick = {
                                     darkMode = m
                                     try {
@@ -627,14 +717,20 @@ fun App() {
                                 }
                             )
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(4.dp))
                         HorizontalDivider()
-                        Spacer(Modifier.height(8.dp))
-                        Text(Lang.t("secTheme"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        DrawerSection(Lang.t("secTheme"))
                         for (t in THEMES) {
                             NavigationDrawerItem(
-                                label = { Text((if (t.name == themeName) "● " else "○ ") + t.name) },
+                                label = {
+                                    Column {
+                                        Text((if (t.name == themeName) "● " else "○ ") + t.name, fontSize = scaled(14.sp, fontScale))
+                                        Text(t.tagline, fontSize = scaled(11.sp, fontScale), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
                                 selected = t.name == themeName,
+                                icon = { ThemeDot(t.name) },
                                 onClick = {
                                     themeName = t.name
                                     try {
@@ -644,78 +740,197 @@ fun App() {
                                 }
                             )
                         }
+                        Spacer(Modifier.height(12.dp))
+                        }
                     }
                 }
             }
         ) {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             Column(
                 Modifier.fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
             ) {
-                TopAppBar(
-                    title = { Text(Lang.t("appTitle")) },
-                    navigationIcon = {
-                        TextButton(onClick = {
-                            scope.launch { try {
-                                drawerState.open()
-                            } catch (ignored: Exception) {
-                            } }
-                        }) { Text("☰", fontSize = 22.sp, color = MaterialTheme.colorScheme.onPrimary) }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                )
-                Text(
-                    "${store.items().size} total • $todayN today • $weekN this week • " +
-                        if (shown.isEmpty()) "nothing" else "next: ${shown[0].title}" +
-                            if (pair.isPaired()) " • ✉ ${pair.partnerCode()}" else " • not connected",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    fontSize = 12.sp
-                )
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // ── Smart ultra-modern hero header ──
+                Box(
+                    Modifier.fillMaxWidth()
+                        .background(heroGradient())
+                        .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 18.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = { mainTab = "Mine" },
-                        modifier = Modifier.weight(1f)
-                    ) { Text((if (mainTab == "Mine") "● " else "○ ") + "♥ Mine") }
-                    OutlinedButton(
-                        onClick = { mainTab = "Inbox" },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        val n = inboxList.size
-                        Text((if (mainTab == "Inbox") "● " else "○ ") + if (n > 0) "💌 Inbox ($n)" else "💌 Inbox")
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = {
+                                scope.launch { try {
+                                    drawerState.open()
+                                } catch (ignored: Exception) {
+                                } }
+                            }) { Text("☰", fontSize = scaled(24.sp, fontScale), color = Color.White) }
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "${greetingFor(now.hour)} ♥",
+                                    fontSize = scaled(13.sp, fontScale),
+                                    color = Color.White.copy(alpha = 0.92f),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    if (mainTab == "Inbox") "Your surprises, right on time"
+                                    else if (shown.isNotEmpty()) "Next up: ${shown[0].title}"
+                                    else Lang.t("appTitle"),
+                                    fontSize = scaled(21.sp, fontScale),
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                            Surface(shape = RoundedCornerShape(16.dp), color = Color.White.copy(alpha = 0.2f)) {
+                                Text(
+                                    if (pair.isPaired()) "✉ ${pair.partnerCode()}" else if (syncing) "○ …" else "○ Offline",
+                                    color = Color.White, fontSize = scaled(12.sp, fontScale), fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        // Approachable stat pills: glanceable, high contrast.
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            HeroStat("${store.items().size}", "saved", Modifier.weight(1f), fontScale)
+                            HeroStat("$todayN", "today", Modifier.weight(1f), fontScale)
+                            HeroStat("$weekN", "this week", Modifier.weight(1f), fontScale)
+                            HeroStat("${inboxList.size}", "inbox", Modifier.weight(1f), fontScale)
+                        }
+                        if (mainTab == "Mine" && shown.isNotEmpty()) {
+                            Spacer(Modifier.height(10.dp))
+                            val next = shown[0]
+                            Surface(
+                                shape = RoundedCornerShape(18.dp),
+                                color = Color.White,
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    if (next.isForMe(myId)) secretOf = next
+                                    else { editing = next.copyFromJson(); editIsNew = false }
+                                }
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(next.displayIcon(), fontSize = scaled(28.sp, fontScale))
+                                    Spacer(Modifier.width(10.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            "UP NEXT • ${next.displayCategory().uppercase()}",
+                                            fontSize = scaled(10.sp, fontScale), fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(next.title, fontWeight = FontWeight.Bold, fontSize = scaled(16.sp, fontScale))
+                                        Text(
+                                            "${next.shortCountdown(today)} • ${next.dateLabel()}",
+                                            fontSize = scaled(12.sp, fontScale),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            next.countdownText(now),
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = scaled(14.sp, fontScale)
+                                        )
+                                        Text(
+                                            "Tap to open →",
+                                            fontSize = scaled(11.sp, fontScale),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+                // ── Friendly tab switcher: big 52dp targets, clear selected state ──
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    OutlinedButton(
+                    SmartTab(
+                        selected = mainTab == "Mine",
+                        title = "♥ Mine",
+                        subtitle = "${store.items().count { !it.isForMe(myId) }}",
+                        onClick = { mainTab = "Mine" },
+                        modifier = Modifier.weight(1f),
+                        fontScale = fontScale
+                    )
+                    SmartTab(
+                        selected = mainTab == "Inbox",
+                        title = if (inboxList.isNotEmpty()) "💌 Inbox (${inboxList.size})" else "💌 Inbox",
+                        subtitle = if (inboxList.isNotEmpty()) "new!" else "D-day only",
+                        onClick = { mainTab = "Inbox" },
+                        modifier = Modifier.weight(1f),
+                        fontScale = fontScale
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    SmartTab(
+                        selected = viewMode == "List",
+                        title = "☰ ${Lang.t("viewList")}",
+                        subtitle = "in order",
                         onClick = { viewMode = "List"; calDay = null },
-                        modifier = Modifier.weight(1f)
-                    ) { Text((if (viewMode == "List") "● " else "○ ") + Lang.t("viewList")) }
-                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        fontScale = fontScale,
+                        compact = true
+                    )
+                    SmartTab(
+                        selected = viewMode == "Calendar",
+                        title = "📅 ${Lang.t("viewCalendar")}",
+                        subtitle = "by date",
                         onClick = { viewMode = "Calendar" },
-                        modifier = Modifier.weight(1f)
-                    ) { Text((if (viewMode == "Calendar") "● " else "○ ") + Lang.t("viewCalendar")) }
+                        modifier = Modifier.weight(1f),
+                        fontScale = fontScale,
+                        compact = true
+                    )
                 }
                 OutlinedTextField(
                     query, { query = it },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    placeholder = { Text(Lang.t("search")) },
-                    singleLine = true
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                    placeholder = { Text(Lang.t("search"), fontSize = scaled(14.sp, fontScale)) },
+                    leadingIcon = { Text("🔍", fontSize = scaled(18.sp, fontScale)) },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) TextButton(onClick = { query = "" }) { Text("✕") }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(28.dp)
                 )
+                // Smart filter chips: one-tap, no hidden menus. Sort stays a dropdown.
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    MappedDropDown(
-                        Lang.t("filter"), FILTERS, filter, { filter = it },
-                        { Lang.filterLabel(it) }, Modifier.weight(1f)
+                    for (f in FILTERS) {
+                        val sel = filter == f
+                        FilterChip(
+                            selected = sel,
+                            onClick = { filter = f },
+                            label = { Text(filterEmoji(f) + Lang.filterLabel(f), fontSize = scaled(13.sp, fontScale), fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        )
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        if (shown.isEmpty()) "No results"
+                        else if (shown.size == 1) "1 countdown"
+                        else "${shown.size} countdowns",
+                        fontSize = scaled(12.sp, fontScale),
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
                     )
                     MappedDropDown(
                         Lang.t("sort"), SORTS, sort, { sort = it },
@@ -729,16 +944,22 @@ fun App() {
                         store = store,
                         myId = myId,
                         selected = calDay,
+                        fontScale = fontScale,
                         onMonth = { calMonth = it },
                         onDay = { calDay = it; refresh() }
                     )
                 }
                 undoItem?.let { u ->
+                    Surface(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer
+                    ) {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("${Lang.t("deleted")} '${u.title}'", fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        Text("${Lang.t("deleted")} '${u.title}'", fontSize = scaled(13.sp, fontScale), modifier = Modifier.weight(1f))
                         TextButton(onClick = {
                             store.addOrUpdate(u)
                             undoItem = null
@@ -746,52 +967,79 @@ fun App() {
                         }) { Text(Lang.t("undo")) }
                         TextButton(onClick = { undoItem = null }) { Text(Lang.t("dismiss")) }
                     }
+                    }
                 }
                 if (shown.isEmpty()) {
                     Column(
-                        Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                        Modifier.weight(1f).fillMaxWidth().padding(24.dp).verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
                         if (mainTab == "Inbox") {
-                            Text("💌", fontSize = 44.sp)
-                            Spacer(Modifier.height(8.dp))
+                            Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                                Text("💌", fontSize = scaled(52.sp, fontScale), modifier = Modifier.padding(20.dp))
+                            }
+                            Spacer(Modifier.height(12.dp))
                             Text(
-                                "No messages today. Partner surprises appear here on D-day, then vanish after the day ends. Yearly surprises return each year.",
-                                fontSize = 14.sp
+                                "All quiet — for now",
+                                fontSize = scaled(20.sp, fontScale), fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Partner surprises appear here on D-day, then vanish after the day ends. Yearly surprises return each year.",
+                                fontSize = scaled(14.sp, fontScale),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         } else {
-                            Text("♥", fontSize = 44.sp)
-                            Spacer(Modifier.height(8.dp))
+                            Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                                Text("♥", fontSize = scaled(52.sp, fontScale), color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(20.dp))
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "Start your first countdown",
+                                fontSize = scaled(20.sp, fontScale), fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(6.dp))
                             Text(
                                 if (query.isNotBlank() || filter != "All") Lang.t("emptyNomatch")
-                                else Lang.t("emptyNew"),
-                                fontSize = 14.sp
+                                else "Three easy steps: 1) Name it  2) Pick a date  3) Add a secret or photo if you like.",
+                                fontSize = scaled(14.sp, fontScale),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(Modifier.height(12.dp))
-                            Button(onClick = {
-                                val item = EventItem()
-                                item.date = LocalDate.now().plusDays(7)
-                                item.senderId = myId
-                                item.forPartner = pair.isPaired()
-                                editing = item
-                                editIsNew = true
-                            }) { Text(Lang.t("newBtn")) }
+                            Spacer(Modifier.height(14.dp))
+                            Button(
+                                onClick = {
+                                    val item = EventItem()
+                                    item.date = LocalDate.now().plusDays(7)
+                                    item.senderId = myId
+                                    item.forPartner = pair.isPaired()
+                                    editing = item
+                                    editIsNew = true
+                                },
+                                modifier = Modifier.heightIn(min = 52.dp),
+                                shape = RoundedCornerShape(18.dp)
+                            ) { Text(Lang.t("newBtn"), fontSize = scaled(15.sp, fontScale)) }
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Tip: use the search and chips above to find anything fast.",
+                                fontSize = scaled(12.sp, fontScale),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 } else {
-                    LazyColumn(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                    LazyColumn(Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 4.dp)) {
                         items(shown, key = { it.id }) { e ->
                             if (e.isForMe(myId)) {
-                                // Receiver view: sealed card only, no details, no edit.
-                                // The message + reply open through OPEN MESSAGE.
                                 SecretInboxCard(
                                     e,
+                                    fontScale = fontScale,
                                     onOpen = { secretOf = e }
                                 )
                             } else {
                                 EventCard(
                                     e, now, myId,
+                                    fontScale = fontScale,
                                     onEdit = { editing = e.copyFromJson(); editIsNew = false },
                                     onDuplicate = {
                                         val copy = e.copyFromJson()
@@ -810,9 +1058,6 @@ fun App() {
                                             } catch (ignored: Exception) {
                                             }
                                         }
-                                        // Open the message view when there is anything
-                                        // conversation-like: secret, replies, or a shared
-                                        // partner countdown. Otherwise plain alarm.
                                         val hasThread = e.threadEntries().isNotEmpty()
                                         if (e.hasSecret() || hasThread || e.forPartner) secretOf = e else alarmOf = e
                                     },
@@ -823,17 +1068,21 @@ fun App() {
                         }
                     }
                 }
-                FloatingActionButton(
-                    onClick = {
-                        val item = EventItem()
-                        item.date = LocalDate.now().plusDays(7)
-                        item.senderId = myId
-                        item.forPartner = pair.isPaired()
-                        editing = item
-                        editIsNew = true
-                    },
-                    modifier = Modifier.align(Alignment.End).padding(16.dp)
-                ) { Text("+", fontSize = 24.sp, fontWeight = FontWeight.Bold) }
+            }
+            // Approachable extended FAB: label + icon, always visible above content.
+            ExtendedFloatingActionButton(
+                onClick = {
+                    val item = EventItem()
+                    item.date = LocalDate.now().plusDays(7)
+                    item.senderId = myId
+                    item.forPartner = pair.isPaired()
+                    editing = item
+                    editIsNew = true
+                },
+                text = { Text(Lang.t("newBtn"), fontSize = scaled(14.sp, fontScale)) },
+                icon = { Text("+", fontSize = scaled(22.sp, fontScale), fontWeight = FontWeight.Bold) },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+            )
             }
         }
 
@@ -1711,39 +1960,63 @@ private fun LetterReveal(
 @Composable
 private fun SecretInboxCard(
     e: EventItem,
+    fontScale: Float = 1f,
     onOpen: () -> Unit
 ) {
     val accent = e.accentColor(Brand)
     val replies = try { e.threadEntries().size } catch (ignored: Exception) { 0 }
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+        shape = RoundedCornerShape(24.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 3.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            Box(Modifier.width(7.dp).fillMaxHeight().background(accent))
+            Column(Modifier.weight(1f).padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("🎁", fontSize = 30.sp)
-                Spacer(Modifier.width(10.dp))
+                Surface(shape = CircleShape, color = accent.copy(alpha = 0.14f)) {
+                    Text("🎁", fontSize = scaled(26.sp, fontScale), modifier = Modifier.padding(10.dp))
+                }
+                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         if (e.title.isNotBlank()) e.title else "You have a new secret message — open it",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
+                        fontSize = scaled(17.sp, fontScale)
                     )
-                    Text(
-                        "🎁 FOR YOU • ${e.dateLabel()}".uppercase(),
-                        color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold
-                    )
+                    Spacer(Modifier.height(2.dp))
+                    Surface(shape = RoundedCornerShape(8.dp), color = accent.copy(alpha = 0.14f)) {
+                        Text(
+                            "🎁 FOR YOU • ${e.shortCountdown(LocalDate.now()).uppercase()}",
+                            color = accent, fontSize = scaled(11.sp, fontScale), fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
-            Spacer(Modifier.height(6.dp))
-            Text("Your partner's surprise arrived at zero. Nothing was visible before today.", fontSize = 13.sp)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Your partner's surprise arrived — open it when you're ready. Nothing was visible before today.",
+                fontSize = scaled(14.sp, fontScale),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(e.dateLabel(), fontSize = scaled(12.sp, fontScale), color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (replies > 0) {
-                Spacer(Modifier.height(4.dp))
-                Text("💬 $replies repl${if (replies == 1) "y" else "ies"} — open to read & reply.", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = accent)
+                Spacer(Modifier.height(6.dp))
+                AssistChip(
+                    onClick = onOpen,
+                    label = { Text("💬 $replies repl${if (replies == 1) "y" else "ies"} — tap to read", fontSize = scaled(12.sp, fontScale)) }
+                )
             }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Button(onClick = onOpen) { Text(Lang.t("openMsg")) }
+                Button(
+                    onClick = onOpen,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) { Text(Lang.t("openMsg"), fontSize = scaled(14.sp, fontScale)) }
+            }
             }
         }
     }
@@ -1754,6 +2027,7 @@ private fun EventCard(
     e: EventItem,
     now: LocalDateTime,
     myId: String,
+    fontScale: Float = 1f,
     onEdit: () -> Unit,
     onDuplicate: () -> Unit,
     onRing: () -> Unit,
@@ -1765,65 +2039,95 @@ private fun EventCard(
     val accent = e.accentColor(MaterialTheme.colorScheme.primary)
     val mine = e.isMine(myId)
     val forMe = e.isForMe(myId)
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    val daysLeft = try { e.daysUntil(today) } catch (ignored: Exception) { 0L }
+    val urgency: Color = when {
+        due -> Success
+        daysLeft < 0 -> MaterialTheme.colorScheme.error
+        daysLeft <= 1 -> MaterialTheme.colorScheme.primary
+        daysLeft <= 7 -> MaterialTheme.colorScheme.tertiary
+        else -> accent
+    }
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+        shape = RoundedCornerShape(24.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 3.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            // Accent rail: instant color identity, helps scanning.
+            Box(Modifier.width(7.dp).fillMaxHeight().background(accent))
+            Column(Modifier.weight(1f).padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(e.displayIcon(), fontSize = 30.sp)
-                Spacer(Modifier.width(10.dp))
+                Surface(shape = CircleShape, color = accent.copy(alpha = 0.14f)) {
+                    Text(e.displayIcon(), fontSize = scaled(26.sp, fontScale), modifier = Modifier.padding(10.dp))
+                }
+                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        (if (e.featured) "★ " else "") + e.title,
+                        (if (e.featured) "★ " else "") + e.title.ifBlank { "Untitled countdown" },
                         fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
+                        fontSize = scaled(18.sp, fontScale)
                     )
-                    val bits = mutableListOf(
-                        e.displayCategory().uppercase(),
-                        e.shortCountdown(today).uppercase()
-                    )
-                    if (forMe) bits.add("🎁 FOR YOU")
-                    else if (mine && e.forPartner) {
-                        if (e.seenAtSec > 0) {
-                            val s = try { e.receiptLabel(e.seenAtSec) } catch (ignored: Exception) { "" }
-                            bits.add(if (s.isNotEmpty()) "👁 SEEN • $s" else "👁 SEEN")
-                        } else if (e.delivered) {
-                            val d = try { e.receiptLabel(e.deliveredAtSec) } catch (ignored: Exception) { "" }
-                            bits.add(if (d.isNotEmpty()) "✉ DELIVERED • $d" else "✉ DELIVERED")
-                        } else bits.add("✉ TO PARTNER")
-                    }
-                    if (e.hasSecret() && !forMe) bits.add("SECRET ARMED")
-                    try {
-                        val rc = e.threadEntries().size
-                        if (rc > 0) bits.add("💬 $rc ${if (rc == 1) "REPLY" else "REPLIES"}")
-                    } catch (ignored: Exception) {
-                    }
-                    if (e.effectiveRepeat() != "once") bits.add(e.repeatLabel().uppercase())
-                    if (e.soundName == "Silent") bits.add("MUTED")
-                    Text(bits.joinToString(" • "), color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-                Column(horizontalAlignment = Alignment.End) {
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        if (due) "♥ DAY IS HERE ♥" else "♥ LIVE ♥",
-                        color = if (due) Success else accent,
-                        fontSize = 11.sp,
+                        "${e.displayCategory().uppercase()} • ${e.shortCountdown(today).uppercase()}",
+                        color = accent, fontSize = scaled(11.sp, fontScale), fontWeight = FontWeight.Bold
+                    )
+                }
+                // Live timer block: big, mono, always readable.
+                Surface(shape = RoundedCornerShape(14.dp), color = urgency.copy(alpha = 0.12f)) {
+                    Column(
+                        Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        horizontalAlignment = Alignment.End
+                    ) {
+                    Text(
+                        if (due) "♥ TODAY" else "♥ LIVE",
+                        color = urgency,
+                        fontSize = scaled(10.sp, fontScale),
                         fontWeight = FontWeight.Bold
                     )
-                    Text(e.countdownText(now), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text(e.shortCountdown(today), fontSize = 11.sp)
+                    Text(
+                        e.countdownText(now),
+                        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
+                        fontSize = scaled(15.sp, fontScale)
+                    )
+                    }
                 }
             }
+            Spacer(Modifier.height(8.dp))
+            // Status chips: secret / partner / replies / repeat — glanceable.
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (e.hasSecret() && !forMe) StatusPill("🎁 Secret ready", accent, fontScale)
+                if (forMe) StatusPill("🎁 For you", accent, fontScale)
+                else if (mine && e.forPartner) {
+                    val label = if (e.seenAtSec > 0) "👁 Seen" else if (e.delivered) "✉ Delivered" else "✉ To partner"
+                    StatusPill(label, accent, fontScale)
+                }
+                val replyCount = e.threadEntries().size
+                if (replyCount > 0) StatusPill("💬 $replyCount ${if (replyCount == 1) "reply" else "replies"}", accent, fontScale)
+                if (e.effectiveRepeat() != "once") StatusPill("↻ ${e.repeatLabel()}", accent, fontScale)
+                if (e.soundName == "Silent") StatusPill("🔇 Muted", accent, fontScale)
+                if (due) StatusPill("♥ Day is here", Success, fontScale)
+                else if (daysLeft in 1..7) StatusPill("⏳ $daysLeft day${if (daysLeft == 1L) "" else "s"} left", accent, fontScale)
+            }
             Spacer(Modifier.height(6.dp))
-            Text("📅 ${e.dateLabel()}" + if (e.photoUri.isNotEmpty()) " • 📷" else "", fontSize = 12.sp)
+            Text("📅 ${e.dateLabel()}" + if (e.photoUri.isNotEmpty()) " • 📷 Photo" else "", fontSize = scaled(12.sp, fontScale), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(2.dp))
             if (forMe && !due) {
-                Text("🎁 A surprise from your partner — the message arrives at zero.", fontSize = 13.sp)
+                Text(
+                    "🎁 A surprise from your partner — the message arrives at zero.",
+                    fontSize = scaled(14.sp, fontScale),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             } else {
                 val body = if (e.message.isEmpty()) "A special moment is waiting…" else e.message
-                Text(body, fontSize = 13.sp)
+                Text(body, fontSize = scaled(14.sp, fontScale))
             }
             if (e.photoUri.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 val bmp = remember(e.photoUri) {
                     try {
                         loadPhotoBitmap(e.photoUri)
@@ -1834,38 +2138,55 @@ private fun EventCard(
                 if (bmp != null) {
                     Image(
                         bmp, contentDescription = Lang.t("photo"),
-                        modifier = Modifier.fillMaxWidth().height(160.dp)
+                        modifier = Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(18.dp))
                     )
                 }
             }
             val threadPreview = try { e.threadEntries() } catch (ignored: Exception) { emptyList() }
             if (threadPreview.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                val lastPreview = threadPreview.last()
-                Text(
-                    "💬 ${threadPreview.size} ${if (threadPreview.size == 1) "reply" else "replies"} — \"${lastPreview.third.take(60)}\" — tap MESSAGES to read & reply.",
-                    fontSize = 12.sp, fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress = { e.progress01(today) },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onEdit) { Text(if (forMe && !mine) "View" else "Edit") }
-                if (mine) {
-                    TextButton(onClick = onDuplicate) { Text("Copy") }
-                    TextButton(onClick = onRing) { Text("Ring") }
-                    // Separate entry to the full message + conversation view
-                    // (secret + replies). This is how a sender sees a reply.
-                    TextButton(onClick = onMessages) { Text("Messages") }
-                    TextButton(onClick = onDelete) { Text("Delete") }
-                } else if (!mine && !forMe) {
-                    TextButton(onClick = onMessages) { Text("View") }
+                Spacer(Modifier.height(8.dp))
+                Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                    val lastPreview = threadPreview.last()
+                    Text(
+                        "💬 ${threadPreview.size} ${if (threadPreview.size == 1) "reply" else "replies"} — \"${lastPreview.third.take(70)}\" — tap Messages to read & reply.",
+                        fontSize = scaled(12.sp, fontScale), fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                    )
                 }
             }
+            Spacer(Modifier.height(10.dp))
+            LinearProgressIndicator(
+                progress = { e.progress01(today) },
+                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(8.dp)),
+                color = urgency,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+            )
+            Spacer(Modifier.height(4.dp))
+            // Big, labelled actions: approachable for everyone, 48dp targets.
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End)) {
+                TextButton(onClick = onEdit, modifier = Modifier.heightIn(min = 44.dp)) { Text(if (forMe && !mine) "View" else "✏ Edit", fontSize = scaled(13.sp, fontScale)) }
+                if (mine) {
+                    TextButton(onClick = onDuplicate, modifier = Modifier.heightIn(min = 44.dp)) { Text("⧉ Copy", fontSize = scaled(13.sp, fontScale)) }
+                    TextButton(onClick = onRing, modifier = Modifier.heightIn(min = 44.dp)) { Text("🔔 Ring", fontSize = scaled(13.sp, fontScale)) }
+                    TextButton(onClick = onMessages, modifier = Modifier.heightIn(min = 44.dp)) { Text("💬 Messages", fontSize = scaled(13.sp, fontScale)) }
+                    TextButton(onClick = onDelete, modifier = Modifier.heightIn(min = 44.dp)) { Text("🗑 Delete", fontSize = scaled(13.sp, fontScale), color = MaterialTheme.colorScheme.error) }
+                } else if (!mine && !forMe) {
+                    TextButton(onClick = onMessages, modifier = Modifier.heightIn(min = 44.dp)) { Text("👁 View", fontSize = scaled(13.sp, fontScale)) }
+                }
+            }
+            }
         }
+    }
+}
+
+@Composable
+private fun StatusPill(text: String, accent: Color, fontScale: Float) {
+    Surface(shape = RoundedCornerShape(10.dp), color = accent.copy(alpha = 0.12f)) {
+        Text(
+            text.uppercase(),
+            fontSize = scaled(10.sp, fontScale), fontWeight = FontWeight.Bold, color = accent,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+        )
     }
 }
 
@@ -1938,14 +2259,27 @@ private fun EditDialog(
 
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text(if (isNew) Lang.t("dlgCreate") else Lang.t("dlgEdit")) },
+        title = {
+            Column {
+                Text(if (isNew) "✨ ${Lang.t("dlgCreate")}" else "✏ ${Lang.t("dlgEdit")}", fontWeight = FontWeight.Bold)
+                Text(
+                    if (isNew) "Name it, pick a date — done in 30 seconds."
+                    else "Everything stays saved until you tap SAVE.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                EditSection("① BASICS — what & when")
                 OutlinedTextField(
                     title, { title = it; titleErr = false },
                     label = { Text(Lang.t("title")) },
+                    placeholder = { Text("e.g. Birthday trip, Exam day…") },
                     singleLine = true,
-                    isError = titleErr
+                    isError = titleErr,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(6.dp))
                 if (audiences.size > 1) {
@@ -1956,7 +2290,11 @@ private fun EditDialog(
                 Spacer(Modifier.height(6.dp))
                 DropDown(Lang.t("icon"), EventItem.ICON_PRESETS, icon, { icon = it })
                 Spacer(Modifier.height(6.dp))
-                OutlinedButton(onClick = { showDate = true }, modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { showDate = true },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
                     val h12d = hour12S.toIntOrNull() ?: 12
                     Text("${Lang.t("targetDate")}: $date • $h12d:${minS.padStart(2, '0')} $ampmSel")
                 }
@@ -1990,7 +2328,8 @@ private fun EditDialog(
                     DropDown("AM/PM", listOf("AM", "PM"), ampmSel, { ampmSel = it }, modifier = Modifier.weight(1f))
                 }
                 if (timeErr != null) Text(timeErr!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
+                EditSection("② REPEAT & REMINDERS")
                 MappedDropDown(Lang.t("repeat"), REPEATS, repeatSel, { repeatSel = it }, { Lang.repeatDisplay(it) })
                 Spacer(Modifier.height(6.dp))
                 CheckRow(Lang.t("featured"), featured) { featured = it }
@@ -1998,29 +2337,44 @@ private fun EditDialog(
                 MappedDropDown(Lang.t("soundStyle"), SOUNDS, soundSel, { soundSel = it }, { Lang.soundDisplay(it) })
                 CheckRow(Lang.t("remind1"), remind1) { remind1 = it }
                 CheckRow(Lang.t("remind7"), remind7) { remind7 = it }
+                Spacer(Modifier.height(8.dp))
+                EditSection("③ STYLE — make it yours")
                 CheckRow(Lang.t("secretAtZero"), secretOn) { secretOn = it }
+                Text(
+                    "Secret stays sealed until zero, then opens like a letter. Typing below auto-arms it.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
                 DropDown(Lang.t("accent"), ACCENTS.map { it.first }, ACCENTS[accentIdx].first, {
                     accentIdx = ACCENTS.indexOfFirst { a -> a.first == it }
                     if (ACCENTS[accentIdx].second.isNotEmpty()) customHex = ""
                 })
                 OutlinedTextField(
                     customHex, { customHex = it.take(7) },
-                    label = { Text(Lang.t("customHex")) }, singleLine = true
+                    label = { Text(Lang.t("customHex")) }, singleLine = true,
+                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(message, { message = it }, label = { Text(Lang.t("message")) })
+                Spacer(Modifier.height(6.dp))
+                EditSection("④ WORDS & PHOTO")
+                OutlinedTextField(
+                    message, { message = it },
+                    label = { Text(Lang.t("message")) },
+                    placeholder = { Text("Shown on the card…") },
+                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()
+                )
                 Spacer(Modifier.height(6.dp))
                 OutlinedTextField(
                     secretMsg,
                     {
                         secretMsg = it
-                        // Typing a secret auto-arms it — prevents the
-                        // "typed secret but forgot the toggle, only normal shows" bug.
                         if (it.trim().isNotEmpty() && !secretOn) secretOn = true
                     },
-                    label = { Text(Lang.t("secretMsg")) }
+                    label = { Text("🎁 ${Lang.t("secretMsg")}") },
+                    placeholder = { Text("Sealed until zero…") },
+                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(6.dp))
-                Text(Lang.t("photo"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("📷 ${Lang.t("photo")}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 if (photo.isNotEmpty()) {
                     val prev = remember(photo) {
                         try {
@@ -2148,25 +2502,36 @@ private fun CalendarView(
     store: EventStore,
     myId: String,
     selected: LocalDate?,
+    fontScale: Float = 1f,
     onMonth: (LocalDate) -> Unit,
     onDay: (LocalDate?) -> Unit
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+    ElevatedCard(
+        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(22.dp)
+    ) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { onMonth(month.minusMonths(1)); onDay(null) }) { Text("‹") }
+            TextButton(onClick = { onMonth(month.minusMonths(1)); onDay(null) }, modifier = Modifier.heightIn(min = 44.dp)) { Text("‹", fontSize = scaled(20.sp, fontScale)) }
             Text(
                 month.month.name.lowercase().replaceFirstChar { it.uppercase() } + " ${month.year}",
                 fontWeight = FontWeight.Bold,
+                fontSize = scaled(16.sp, fontScale),
                 modifier = Modifier.weight(1f)
             )
-            TextButton(onClick = { onMonth(LocalDate.now().withDayOfMonth(1)) }) { Text("Today") }
-            TextButton(onClick = { onMonth(month.plusMonths(1)); onDay(null) }) { Text("›") }
+            TextButton(onClick = { onMonth(LocalDate.now().withDayOfMonth(1)) }, modifier = Modifier.heightIn(min = 44.dp)) { Text("Today", fontSize = scaled(13.sp, fontScale)) }
+            TextButton(onClick = { onMonth(month.plusMonths(1)); onDay(null) }, modifier = Modifier.heightIn(min = 44.dp)) { Text("›", fontSize = scaled(20.sp, fontScale)) }
         }
         Row(Modifier.fillMaxWidth()) {
             for (d in listOf("M", "T", "W", "T", "F", "S", "S")) {
-                Text(d, modifier = Modifier.weight(1f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    d, modifier = Modifier.weight(1f),
+                    fontSize = scaled(11.sp, fontScale), fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
+        Spacer(Modifier.height(4.dp))
         val first = month.withDayOfMonth(1)
         // Monday-first offset
         val offset = (first.dayOfWeek.value - 1) % 7
@@ -2185,16 +2550,44 @@ private fun CalendarView(
                             } else if (e.nextOccurrence(today) == d || e.isDueToday(d)) n++
                         }
                         val sel = selected == d
-                        OutlinedButton(
-                            onClick = { onDay(if (sel) null else d) },
-                            modifier = Modifier.weight(1f).padding(1.dp)
+                        val isToday = d == today
+                        Box(
+                            Modifier.weight(1f).padding(2.dp)
+                                .heightIn(min = 44.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    when {
+                                        sel -> MaterialTheme.colorScheme.primary
+                                        isToday -> MaterialTheme.colorScheme.primaryContainer
+                                        n > 0 -> MaterialTheme.colorScheme.surfaceContainerHighest
+                                        else -> Color.Transparent
+                                    }
+                                )
+                                .clickable { onDay(if (sel) null else d) },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                if (n > 0) "$day•$n" else "$day",
-                                fontSize = 11.sp,
-                                fontWeight = if (d == today || sel) FontWeight.Bold else FontWeight.Normal,
-                                color = if (d == today) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            )
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    "$day",
+                                    fontSize = scaled(14.sp, fontScale),
+                                    fontWeight = if (isToday || sel) FontWeight.Bold else FontWeight.Normal,
+                                    color = when {
+                                        sel -> MaterialTheme.colorScheme.onPrimary
+                                        isToday -> MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                                if (n > 0) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        repeat(minOf(n, 3)) {
+                                            Box(
+                                                Modifier.size(5.dp).clip(CircleShape)
+                                                    .background(if (sel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     } else {
                         Spacer(Modifier.weight(1f))
@@ -2205,15 +2598,111 @@ private fun CalendarView(
             if (day > len) return@repeat
         }
         if (selected != null) {
-            Text("Showing $selected — tap again to clear.", fontSize = 12.sp)
+            Spacer(Modifier.height(6.dp))
+            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                Text(
+                    "Showing $selected — tap the date again to show everything.",
+                    fontSize = scaled(12.sp, fontScale),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                )
+            }
+        } else {
+            Text(
+                "Tap a date to filter • dots mean countdowns land there",
+                fontSize = scaled(11.sp, fontScale),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
+    }
     }
 }
 
 @Composable
 private fun CheckRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 44.dp)) {
         Checkbox(checked, onChange)
-        Text(label)
+        Text(label, fontSize = 14.sp)
     }
+}
+
+// ── Shared smart/modern building blocks ──
+
+@Composable
+private fun DrawerSection(title: String) {
+    Text(
+        title.uppercase(),
+        fontSize = 11.sp, fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+    )
+}
+
+@Composable
+private fun ThemeDot(themeName: String) {
+    val c = when (themeName) {
+        "Ocean" -> Color(0xFF0284C7)
+        "Sunset" -> Color(0xFFEA580C)
+        "Forest" -> Color(0xFF15803D)
+        "Lavender" -> Color(0xFF6D64FF)
+        "Porcelain" -> Color(0xFF475569)
+        "Midnight Android" -> Color(0xFF0E9F6E)
+        else -> Brand
+    }
+    Box(Modifier.size(18.dp).clip(CircleShape).background(c))
+}
+
+@Composable
+private fun HeroStat(value: String, label: String, modifier: Modifier = Modifier, fontScale: Float = 1f) {
+    Surface(shape = RoundedCornerShape(16.dp), color = Color.White.copy(alpha = 0.18f), modifier = modifier) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(value, fontWeight = FontWeight.Bold, fontSize = scaled(19.sp, fontScale), color = Color.White)
+            Text(label, fontSize = scaled(11.sp, fontScale), color = Color.White.copy(alpha = 0.9f))
+        }
+    }
+}
+
+@Composable
+private fun SmartTab(
+    selected: Boolean,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    fontScale: Float = 1f,
+    compact: Boolean = false
+) {
+    Surface(
+        shape = RoundedCornerShape(if (compact) 16.dp else 20.dp),
+        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier.heightIn(min = if (compact) 52.dp else 60.dp).clickable(onClick = onClick)
+    ) {
+        Column(
+            Modifier.padding(horizontal = 12.dp, vertical = if (compact) 7.dp else 9.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                title,
+                fontWeight = FontWeight.Bold,
+                fontSize = scaled(if (compact) 14.sp else 15.sp, fontScale),
+                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                subtitle,
+                fontSize = scaled(11.sp, fontScale),
+                color = if (selected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun EditSection(title: String) {
+    Text(
+        title,
+        fontSize = 11.sp, fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(vertical = 6.dp)
+    )
 }

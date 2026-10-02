@@ -11,13 +11,22 @@ object PhotoLockGuard {
 }
 
 /**
- * App PIN lock. The whole app sits behind this PIN (first run: 1234).
- * Changeable from settings; stored as salted SHA-256.
+ * App PIN lock — optional. Fresh installs have NO PIN and open unlocked.
+ * Once the user sets a PIN (App PIN dialog), the app locks on launch
+ * and when returning from Home/background until unlocked.
+ * Stored as salted SHA-256.
  */
 class PinLock {
     private var unlocked = false
 
-    fun isUnlocked(): Boolean = unlocked
+    /** True once the user has set a PIN. No stored hash = no lock. */
+    fun hasPin(): Boolean = try {
+        !prefsGet(HASH_KEY).isNullOrEmpty()
+    } catch (e: Exception) {
+        false
+    }
+
+    fun isUnlocked(): Boolean = if (!hasPin()) true else unlocked
 
     fun fails(): Int = prefsGet(FAIL_KEY)?.toIntOrNull() ?: 0
 
@@ -54,8 +63,12 @@ class PinLock {
     }
 
     fun unlock(pin: String?): Boolean {
+        if (!hasPin()) {
+            unlocked = true
+            return true
+        }
         if (!canAttempt()) return false
-        val want = prefsGet(HASH_KEY) ?: hash(DEFAULT_PIN)
+        val want = prefsGet(HASH_KEY) ?: return false
         val p = pin ?: ""
         if (constantEquals(hash(p), want)) {
             unlocked = true
@@ -74,11 +87,12 @@ class PinLock {
     }
 
     fun lock() {
-        unlocked = false
+        if (hasPin()) unlocked = false
     }
 
     /** OS biometric succeeded — trust it and unlock (no PIN needed). */
     fun unlockViaBiometric(): Boolean {
+        // No PIN set: nothing to unlock, stay open.
         unlocked = true
         try {
             clearFailures()
@@ -89,24 +103,50 @@ class PinLock {
 
     /** Called when the OS sends the app to Home/background: require PIN on return, no timer otherwise. */
     fun lockOnHome() {
-        unlocked = false
+        if (hasPin()) unlocked = false
+    }
+
+    /** First-time setup: no current PIN needed. */
+    fun setPin(next: String?): Boolean {
+        if (next == null || next.length < 4) return false
+        if (!next.all { it.isDigit() }) return false
+        prefsPut(HASH_KEY, hash(next))
+        clearFailures()
+        return true
+    }
+
+    /** Remove the PIN entirely — app opens unlocked again. */
+    fun removePin(): Boolean {
+        return try {
+            prefsRemove(HASH_KEY)
+            clearFailures()
+            unlocked = true
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     fun changePin(current: String?, next: String?): Boolean {
+        // No PIN yet: treat as first-time setup, current is ignored.
+        if (!hasPin()) return setPin(next)
         if (!canAttempt()) return false
-        val want = prefsGet(HASH_KEY) ?: hash(DEFAULT_PIN)
+        val want = prefsGet(HASH_KEY) ?: return false
         if (!constantEquals(hash(current ?: ""), want) && !isLegacyMatch(current ?: "", want)) {
             recordFailure()
             return false
         }
         if (next == null || next.length < 4) return false
+        if (!next.all { it.isDigit() }) return false
         prefsPut(HASH_KEY, hash(next))
         clearFailures()
         return true
     }
 
     fun isDefaultPin(): Boolean {
-        val want = prefsGet(HASH_KEY) ?: return true
+        // Legacy installs that never changed the original 1234 PIN.
+        // Fresh installs have no PIN at all (hasPin()==false) → not default.
+        val want = prefsGet(HASH_KEY) ?: return false
         return constantEquals(want, hash(DEFAULT_PIN)) || isLegacyMatch(DEFAULT_PIN, want)
     }
 

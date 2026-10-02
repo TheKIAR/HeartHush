@@ -193,6 +193,15 @@ actual fun prefsPut(key: String, value: String) {
         .edit().putString(key, value).apply()
 }
 
+actual fun prefsRemove(key: String) {
+    try {
+        (AppCtx.app ?: error("AppCtx not initialized"))
+            .getSharedPreferences("secount", Context.MODE_PRIVATE)
+            .edit().remove(key).apply()
+    } catch (ignored: Exception) {
+    }
+}
+
 actual fun sha256(data: ByteArray): ByteArray =
     MessageDigest.getInstance("SHA-256").digest(data)
 

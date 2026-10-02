@@ -50,6 +50,13 @@ actual fun prefsPut(key: String, value: String) {
     prefs.put(key, value)
 }
 
+actual fun prefsRemove(key: String) {
+    try {
+        prefs.remove(key)
+    } catch (ignored: Exception) {
+    }
+}
+
 actual fun sha256(data: ByteArray): ByteArray =
     MessageDigest.getInstance("SHA-256").digest(data)
 

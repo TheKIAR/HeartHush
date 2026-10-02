@@ -6,6 +6,7 @@ expect fun platformDataDir(): String
 /** Simple string key-value storage. */
 expect fun prefsGet(key: String): String?
 expect fun prefsPut(key: String, value: String)
+expect fun prefsRemove(key: String)
 
 /** Minimal HTTPS transport (used for pairing + delivery sync). */
 expect fun httpGet(url: String, timeoutMs: Int): String

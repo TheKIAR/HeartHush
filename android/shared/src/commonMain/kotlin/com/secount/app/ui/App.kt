@@ -395,8 +395,9 @@ fun App() {
                         prefsPut(NEED_LOCK_KEY, "")
                     } else {
                         prefsPut(NEED_LOCK_KEY, "")
+                        // Only locks when a PIN is set; otherwise stays open.
                         pin.lockOnHome()
-                        unlocked = false
+                        unlocked = pin.isUnlocked()
                     }
                 }
             } catch (ignored: Exception) {
@@ -1506,7 +1507,8 @@ fun App() {
         }
         // PIN overlay on top: keeps editor/dialog state composed underneath,
         // so a lock never clears unsaved text or photo choice.
-        if (!unlocked) {
+        // No PIN set → no lock screen at all; lock appears only after a PIN is added.
+        if (!unlocked && pin.hasPin()) {
             PinGate(pin, themeName, darkMode, onUnlock = { unlocked = pin.isUnlocked(); refresh() })
         }
       }
@@ -1822,41 +1824,66 @@ private fun PinDialog(pin: PinLock, onClose: () -> Unit) {
     var next by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     var err by remember { mutableStateOf<String?>(null) }
-    var done by remember { mutableStateOf(false) }
+    var done by remember { mutableStateOf<String?>(null) }
+    var hasPin by remember { mutableStateOf(pin.hasPin()) }
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text(Lang.t("pinTitle")) },
         text = {
             Column {
-                Text(Lang.t("pinFirst"), fontSize = 12.sp)
+                Text(
+                    if (hasPin) Lang.t("pinSet")
+                    else Lang.t("pinNone"),
+                    fontSize = 12.sp
+                )
                 Spacer(Modifier.height(6.dp))
-                OutlinedTextField(cur, { cur = it.filter { c -> c.isDigit() }.take(8) }, label = { Text(Lang.t("curPin")) }, singleLine = true, visualTransformation = PasswordVisualTransformation())
-                Spacer(Modifier.height(6.dp))
+                if (hasPin) {
+                    OutlinedTextField(cur, { cur = it.filter { c -> c.isDigit() }.take(8) }, label = { Text(Lang.t("curPin")) }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                    Spacer(Modifier.height(6.dp))
+                }
                 OutlinedTextField(next, { next = it.filter { c -> c.isDigit() }.take(8) }, label = { Text(Lang.t("newPin")) }, singleLine = true, visualTransformation = PasswordVisualTransformation())
                 Spacer(Modifier.height(6.dp))
                 OutlinedTextField(confirm, { confirm = it.filter { c -> c.isDigit() }.take(8) }, label = { Text(Lang.t("confirmPin")) }, singleLine = true, visualTransformation = PasswordVisualTransformation())
                 if (err != null) Text(err!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                if (done) Text(Lang.t("ok"), color = Success, fontSize = 12.sp)
+                if (done != null) Text(done!!, color = Success, fontSize = 12.sp)
             }
         },
         confirmButton = {
             TextButton(onClick = {
+                if (next.length < 4) {
+                    err = Lang.t("newPin")
+                    return@TextButton
+                }
                 if (next != confirm) {
                     err = Lang.t("confirmPin")
                     return@TextButton
                 }
-                if (pin.changePin(cur, next)) {
+                val ok = if (hasPin) pin.changePin(cur, next) else pin.setPin(next)
+                if (ok) {
                     err = null
-                    done = true
+                    done = Lang.t("pinSaved")
                     cur = ""
                     next = ""
                     confirm = ""
+                    hasPin = pin.hasPin()
                 } else err = Lang.t("wrongPin")
-            }) { Text(Lang.t("change")) }
+            }) { Text(if (hasPin) Lang.t("change") else Lang.t("setPin")) }
         },
         dismissButton = {
             Row {
-                TextButton(onClick = { pin.lock(); onClose() }) { Text(Lang.t("lockNow")) }
+                if (hasPin) {
+                    TextButton(onClick = {
+                        if (pin.removePin()) {
+                            hasPin = false
+                            err = null
+                            done = Lang.t("pinRemoved")
+                            cur = ""
+                            next = ""
+                            confirm = ""
+                        }
+                    }) { Text(Lang.t("removePin")) }
+                    TextButton(onClick = { pin.lock(); onClose() }) { Text(Lang.t("lockNow")) }
+                }
                 TextButton(onClick = onClose) { Text(Lang.t("close")) }
             }
         }
